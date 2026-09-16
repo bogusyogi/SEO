@@ -17,11 +17,15 @@ jobs:
         with:
           node-version: '22'
       - name: Install isolated host validator
-        run: npm install --prefix "$RUNNER_TEMP/seo-plugin-validator" --no-audit --no-fund @anthropic-ai/claude-code
-      - name: Record host version and validate package
+        run: npm install --prefix "$RUNNER_TEMP/seo-plugin-validator" --no-audit --no-fund @anthropic-ai/claude-code@2.1.273
+      - name: Validate and install into an isolated host profile
         env:
           CLAUDE_CONFIG_DIR: ${{ runner.temp }}/seo-claude-config
         run: |
           set -euo pipefail
-          "$RUNNER_TEMP/seo-plugin-validator/node_modules/.bin/claude" --version
-          "$RUNNER_TEMP/seo-plugin-validator/node_modules/.bin/claude" plugin validate . --strict
+          CLAUDE="$RUNNER_TEMP/seo-plugin-validator/node_modules/.bin/claude"
+          "$CLAUDE" --version
+          "$CLAUDE" plugin validate . --strict
+          "$CLAUDE" plugin marketplace add "$GITHUB_WORKSPACE"
+          "$CLAUDE" plugin install seo@bogusyogi-seo --scope user
+          "$CLAUDE" plugin list
