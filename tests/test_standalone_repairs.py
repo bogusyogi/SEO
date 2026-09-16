@@ -76,7 +76,7 @@ class StandaloneRepairs(unittest.TestCase):
     def test_legacy_state_migrates_without_deletion(self):
         with tempfile.TemporaryDirectory() as td:
             old=Path(td)/'.legion/seo';old.mkdir(parents=True);(old/'site.yaml').write_text('{"domain":"example.com"}')
-            self.assertEqual(seo_state.state_dir(td),old)
+            self.assertEqual(seo_state.state_dir(td),old.resolve())
             result=seo_state.migrate(td);self.assertEqual(result['status'],'migrated');self.assertTrue(old.is_dir())
             self.assertEqual((Path(td)/'.seo/site.yaml').read_bytes(),(old/'site.yaml').read_bytes())
             with self.assertRaises(ValueError):seo_state.migrate(td)
@@ -93,7 +93,7 @@ class StandaloneRepairs(unittest.TestCase):
         self.assertEqual(r['row_count'],1);self.assertIsNone(r['coverage']['complete'])
         # Execute the actual pure renderer functions, not a hand-written replacement,
         # without requiring matplotlib/WeasyPrint for deterministic contract tests.
-        tree=ast.parse((ROOT/'scripts/google_report.py').read_text())
+        tree=ast.parse((ROOT/'scripts/google_report.py').read_text(encoding='utf-8'))
         needed={'_build_executive_summary','_metric_card'}
         code=ast.Module(body=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in needed],type_ignores=[])
         ns={'BRAND':{'primary':'x','secondary':'y'}};exec(compile(code,'google_report.py','exec'),ns)
