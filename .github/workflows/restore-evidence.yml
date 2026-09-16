@@ -1,0 +1,50 @@
+name: Recover audited source assets
+on:
+  push:
+    paths:
+      - '.github/workflows/restore-evidence.yml'
+permissions:
+  contents: read
+jobs:
+  recover:
+    if: github.ref == 'refs/heads/fix/standalone-seo-hardening'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fetch immutable historical assets without executing them
+        shell: python
+        run: |
+          import hashlib, pathlib, urllib.request
+          root = pathlib.Path('restored')
+          pin = 'a4eaaa223c284ab81641c4283903648a2a8c1f14'
+          files = {
+            'extensions/banana/scripts/batch.py': '7413094d5a205a0e25ec6c5e4d1b8ee7d0d0ab26',
+            'extensions/banana/scripts/cost_tracker.py': 'da474dd3ddbe6db9d7e741f42311eee335010d6f',
+            'extensions/banana/scripts/edit.py': 'a02007e1d93d0cad3dbedcdf3a909dc45d3d1cc9',
+            'extensions/banana/scripts/generate.py': 'f126b765c53a0c36494a4a5fd665f2bfe560a214',
+            'extensions/banana/scripts/presets.py': '27510afb1b036dd2040f243e5d89516bdca8e1f1',
+            'extensions/banana/scripts/setup_mcp.py': 'b0a859c34695e1b2fe39c62c90b14df26d98a179',
+            'extensions/banana/scripts/validate_setup.py': '6cd705a25585978d8190e29e9cc8f242e07411b7',
+            'pdf/google-seo-reference.md': '8780033a3b27e19bae06b73b198c638c9363f1b5',
+          }
+          for path, expected in files.items():
+              url = f'https://raw.githubusercontent.com/Orthic-Labs/legion/{pin}/skills/seo/{path}'
+              with urllib.request.urlopen(url, timeout=30) as r:
+                  data = r.read(200000)
+              actual = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+              assert actual == expected, (path, actual, expected)
+              dest = root / path
+              dest.parent.mkdir(parents=True, exist_ok=True)
+              dest.write_bytes(data)
+          for path in ('LICENSE', 'docs/THIRD_PARTY_NOTICES.md'):
+              url = f'https://raw.githubusercontent.com/Orthic-Labs/legion/{pin}/{path}'
+              with urllib.request.urlopen(url, timeout=30) as r:
+                  data = r.read(200000)
+              dest = root / 'origin-notices' / path
+              dest.parent.mkdir(parents=True, exist_ok=True)
+              dest.write_bytes(data)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audited-legacy-assets
+          path: restored/
+          retention-days: 7
