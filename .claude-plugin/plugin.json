@@ -2,6 +2,9 @@
   "name": "seo",
   "version": "0.2.0",
   "description": "Independent SEO operations and evidence collection",
+  "author": {
+    "name": "Orthic Labs"
+  },
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "repository": "https://github.com/bogusyogi/SEO"
