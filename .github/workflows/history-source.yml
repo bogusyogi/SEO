@@ -1,0 +1,24 @@
+name: Historical SEO asset recovery
+on:
+  push:
+    branches: [seo/standalone-repair-20260916]
+    paths: [.github/workflows/history-source.yml]
+permissions:
+  contents: read
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Orthic-Labs/legion
+          ref: a4eaaa223c284ab81641c4283903648a2a8c1f14
+          persist-credentials: false
+      - name: Archive historical SEO support assets
+        run: git archive --format=zip --output="$RUNNER_TEMP/seo-history.zip" HEAD skills/seo/extensions skills/seo/pdf LICENSE docs/THIRD_PARTY_NOTICES.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: seo-history-a4eaaa2
+          path: ${{ runner.temp }}/seo-history.zip
+          retention-days: 1
