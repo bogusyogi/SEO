@@ -64,7 +64,8 @@ def normalize_result(*, site_url: str, start_date: str, end_date: str,
     dim_impressions = sum(float(x.get('impressions', 0)) for x in rows)
     agg_clicks = float(aggregate_row.get('clicks', 0))
     agg_impressions = float(aggregate_row.get('impressions', 0))
-    return {
+    result = {
+        'schema_version': 2,
         'property': site_url,
         'date_range': {'start': start_date, 'end': end_date},
         'search_type': search_type,
@@ -95,6 +96,11 @@ def normalize_result(*, site_url: str, start_date: str, end_date: str,
         'error': None,
     }
 
+    result['totals'] = dict(result['aggregate'])
+    result['row_count'] = len(processed)
+    result['quick_wins'] = []
+    result['quick_wins_state'] = 'not_computed; use opportunity analysis'
+    return result
 
 def query(site_url: str, start_date: str, end_date: str, dimensions: list[str],
           search_type: str, page_size: int, max_rows: int,

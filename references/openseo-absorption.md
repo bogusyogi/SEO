@@ -17,12 +17,12 @@ Search work needs durable project context shared across runs, not rediscovery on
 - provider/property mappings;
 - baselines and intervention history.
 
-Store non-secret project state under `<project>/.legion/seo/`; keep credentials/secrets outside the repository under user configuration or provider-native secure storage.
+Store non-secret project state under `<project>/.seo/`; keep credentials/secrets outside the repository under user configuration or provider-native secure storage.
 
 Recommended portable layout:
 
 ```text
-.legion/seo/
+.seo/
   site.yaml
   strategy/
   baselines/
@@ -99,4 +99,4 @@ Do not import as Legion core:
 - provider markup/margin model;
 - OpenSEO-specific assistant/MCP topology.
 
-Legion's SEO capability remains provider-agnostic and evidence-first.
+the host's SEO capability remains provider-agnostic and evidence-first.

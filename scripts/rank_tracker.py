@@ -19,7 +19,7 @@ def now() -> str:
 
 
 def state_dir(root: str | Path) -> Path:
-    return Path(root).resolve() / '.legion' / 'seo' / 'rank-tracking'
+    return Path(root).resolve() / '.seo' / 'rank-tracking'
 
 
 def read_input(path: Path) -> list[dict[str, Any]]:

@@ -44,7 +44,7 @@ class SeoKernelTests(unittest.TestCase):
             try:
                 site = self.project.setup_project(td, domain='example.com', market='IN', language='en', gsc_property='sc-domain:example.com')
                 self.assertEqual(site['market'], 'IN')
-                self.assertTrue((Path(td) / '.legion/seo/site.yaml').exists())
+                self.assertTrue((Path(td) / '.seo/site.yaml').exists())
                 result = self.project.doctor(td)
                 blob = json.dumps(result)
                 self.assertNotIn('super-secret-value', blob)

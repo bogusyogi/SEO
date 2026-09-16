@@ -32,9 +32,9 @@ def availability(provider: dict[str, Any], host_tools: set[str] | None = None) -
         return 'available' if hint and hint in (host_tools or set()) else 'unknown'
     vals = [bool(os.environ.get(name)) for name in envs]
     if kind == 'env_all':
-        return 'available' if vals and all(vals) else ('partial' if any(vals) else 'unavailable')
+        return 'configured' if vals and all(vals) else ('partial' if any(vals) else 'unavailable')
     if kind == 'env_any':
-        return 'available' if any(vals) else 'unavailable'
+        return 'configured' if any(vals) else 'unavailable'
     return 'unknown'
 
 
@@ -48,6 +48,8 @@ def discover(host_tools: set[str] | None = None) -> dict[str, Any]:
             'priority': provider.get('priority'),
             'capabilities': provider.get('capabilities') or [],
             'availability': availability(provider, host_tools),
+            'runtime_verified': False,
+            'verification': 'run seo.py doctor --live for this site',
         }
     return {'providers': out, 'selection_rules': reg.get('selection_rules') or []}
 
@@ -62,7 +64,7 @@ def choose(capability: str, *, host_tools: set[str] | None = None,
         state = availability(provider, host_tools)
         if state == 'manual' and not allow_manual:
             continue
-        if state not in {'available', 'manual'}:
+        if state not in {'available', 'configured', 'manual'}:
             continue
         if provider.get('paid') is True and not allow_paid:
             continue
@@ -90,6 +92,7 @@ def choose(capability: str, *, host_tools: set[str] | None = None,
         'provider': name,
         'class': provider.get('class'),
         'availability': state,
+        'runtime_verified': False,
         'paid': provider.get('paid'),
         'priority': priority,
         'alternatives': [x[2] for x in candidates[1:]],

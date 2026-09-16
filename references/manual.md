@@ -4,7 +4,7 @@ PRIMARY_DELIVERABLE: Bounded SEO/AEO/GEO findings, decision, or change with expl
 CHILD_AGENTS_MAX: 0
 MAY_CALL_SKILLS: NONE
 
-This manual governs mixed/full SEO work. The public `SKILL.md` remains the thin router. Legion—not this capability—owns work-graph orchestration, capability composition, authority and delivery state.
+This manual governs mixed/full SEO work. The public `SKILL.md` remains the thin router. The independent SEO runtime and its host own work-graph orchestration, capability composition, authority and delivery state.
 
 ## Authority order
 
@@ -36,7 +36,7 @@ A missing or failed evidence lane is `partial` or `not_testable`, never `pass`.
 6. Reconcile evidence into typed findings. Do not let a prose report become the machine source of truth.
 7. Identify critical gates that block search eligibility, measurement or safe execution.
 8. Run the `references/operations.md` decision method to select one primary next action or justified no-action. A long backlog may remain secondary evidence; it is not the operator decision.
-9. For authorized changes, capture baseline/hypothesis/evaluation conditions, execute through Legion's normal lifecycle, verify deployment, then measure outcome later.
+9. For authorized changes, capture baseline/hypothesis/evaluation conditions, execute through the independent SEO policy and execution lifecycle, verify deployment, then measure outcome later.
 10. Produce one human report plus machine findings/coverage artifacts. Routine scheduled runs use the shorter operator brief.
 
 ## Deterministic evidence first
@@ -183,7 +183,7 @@ Require current explicit authority before publishing, deleting/noindexing, redir
 
 ## Current upstream absorption
 
-Legion historically absorbed AgriciDaniel/claude-seo. As of upstream v2.3.1 (2026-09-10), the useful newer concepts incorporated into Legion are:
+The historical source package absorbed AgriciDaniel/claude-seo. As of upstream v2.3.1 (2026-09-10), the useful newer concepts incorporated into SEO are:
 
 - SERP-overlap semantic topic clustering -> `topic-clusters.md`;
 - SERP-backwards page-type/intent diagnosis (upstream SXO) -> `search-experience.md`;
@@ -194,7 +194,7 @@ Legion historically absorbed AgriciDaniel/claude-seo. As of upstream v2.3.1 (202
 - current-language/CJK coverage caveats should be surfaced instead of presenting partial analysis as comparable;
 - optional backlink-provider fallbacks are provider concerns, not SEO doctrine.
 
-Do not absorb upstream's separate-agent topology, model selection, fixed scores, unsupported statistics, fixed content-length quotas, or cross-skill execution. Legion keeps its own ownership, evidence and effect model.
+Do not absorb upstream's separate-agent topology, model selection, fixed scores, unsupported statistics, fixed content-length quotas, or cross-skill execution. SEO keeps its own ownership, evidence and effect model.
 
 ## Freshness rule
 

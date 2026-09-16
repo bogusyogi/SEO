@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Legion SEO project state, provider doctor, budget preflight and cache helpers.
+"""Standalone SEO project state, provider doctor, budget preflight and cache helpers.
 
 Secrets never belong in project state. JSON is written to ``site.yaml`` because JSON is a
 valid YAML 1.2 subset and keeps this utility dependency-free.
@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-STATE_DIR = Path('.legion') / 'seo'
+STATE_DIR = Path('.seo')
 SITE_FILE = 'site.yaml'
 PROVIDER_ENV = {
     'google_api': ('GOOGLE_API_KEY',),
@@ -189,7 +189,7 @@ def preflight(calls: list[PlannedCall], ceiling_usd: float | None = None) -> dic
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description='Legion SEO project state and provider doctor')
+    ap = argparse.ArgumentParser(description='Standalone SEO project state and provider doctor')
     ap.add_argument('--root', default='.')
     sub = ap.add_subparsers(dest='command', required=True)
 

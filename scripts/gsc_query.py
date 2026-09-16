@@ -72,6 +72,13 @@ def list_sitemaps(site_url: str) -> dict:
         return {'property': site_url, 'sitemaps': [], 'error': str(exc)}
 
 
+def query_search_analytics(site_url, start_date=None, end_date=None, dimensions=None, search_type='web', row_limit=1000, filters=None, data_state='final'):
+    """Compatibility API: authoritative totals, never a sum of dimension rows."""
+    end = end_date or (datetime.now() - timedelta(days=3)).strftime('%Y-%m-%d')
+    start = start_date or (datetime.now() - timedelta(days=28)).strftime('%Y-%m-%d')
+    return query_v2(site_url, start, end, dimensions if dimensions is not None else ['query', 'page'], search_type, max(1, min(row_limit, 25000)), 100000, filters, data_state)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description='Search Console helper; query uses provenance-safe v2 semantics')
     ap.add_argument('command', nargs='?', default='query', choices=['query', 'sitemaps', 'sites'])

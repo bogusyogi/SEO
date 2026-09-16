@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static closure gate for Legion SEO implementation coverage.
+"""Static closure gate for Standalone SEO implementation coverage.
 
 Proves repository implementation closure, not authenticated live-account availability or
 ranking outcomes. Fails closed on checklist/source drift, missing owners/scripts/tests,
@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 SEO_ROOT = Path(__file__).resolve().parent.parent
-REPO_ROOT = SEO_ROOT.parent.parent
+REPO_ROOT = SEO_ROOT
 CATALOG = SEO_ROOT / 'config' / 'control-catalog.json'
 SOURCE_MANIFEST = SEO_ROOT / 'config' / 'source-manifest.json'
 PROVIDER_REGISTRY = SEO_ROOT / 'config' / 'provider-registry.json'
@@ -173,8 +173,8 @@ def check() -> dict[str, Any]:
         if 'dimensionless' not in text.lower() or 'gsc_query_v2' not in text:
             errors.append('legacy gsc_query.py does not delegate to provenance-safe v2 aggregate semantics')
 
-    test_runner = REPO_ROOT / 'scripts' / 'test-python.mjs'
-    if not test_runner.exists() or 'skills/seo/tests' not in test_runner.read_text(encoding='utf-8'):
+    test_runner = REPO_ROOT / '.github' / 'workflows' / 'ci.yml'
+    if not test_runner.exists() or 'unittest discover -s tests' not in test_runner.read_text(encoding='utf-8'):
         errors.append('SEO Python regression suite is not wired into repository Python CI')
     notices = REPO_ROOT / 'docs' / 'THIRD_PARTY_NOTICES.md'
     if not notices.exists() or not all(x in notices.read_text(encoding='utf-8') for x in ('AgriciDaniel/claude-seo', 'every-app/open-seo')):

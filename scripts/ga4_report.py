@@ -225,17 +225,31 @@ def organic_traffic_report(
         # Non-fatal: daily data succeeded, pages failed
         result["pages_error"] = f"Error fetching top pages: {e}"
 
-    # Calculate totals
-    if result["daily_data"]:
-        total_sessions = sum(d["sessions"] for d in result["daily_data"])
-        total_users = sum(d["users"] for d in result["daily_data"])
-        total_pageviews = sum(d["pageviews"] for d in result["daily_data"])
-        result["totals"] = {
-            "sessions": total_sessions,
-            "users": total_users,
-            "pageviews": total_pageviews,
-            "avg_daily_sessions": round(total_sessions / len(result["daily_data"]), 1),
-        }
+    # Query period totals separately. Daily distinct-user counts are not additive.
+    try:
+        names = ['sessions', 'totalUsers', 'screenPageViews', 'keyEvents', 'totalRevenue', 'ecommercePurchases']
+        response = client.run_report(RunReportRequest(
+            property=prop, dimensions=[], metrics=[Metric(name=n) for n in names],
+            date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
+            dimension_filter=FilterExpression(filter=Filter(
+                field_name='sessionDefaultChannelGroup',
+                string_filter=Filter.StringFilter(match_type=Filter.StringFilter.MatchType.EXACT, value='Organic Search'))),
+            return_property_quota=True))
+        raw = dict(zip(names, [float(v.value) for v in response.rows[0].metric_values])) if response.rows else dict.fromkeys(names, 0)
+        result['totals'] = {'sessions': int(raw['sessions']), 'users': int(raw['totalUsers']),
+            'pageviews': int(raw['screenPageViews']), 'key_events': raw['keyEvents'],
+            'revenue': raw['totalRevenue'], 'purchases': raw['ecommercePurchases'],
+            'avg_daily_sessions': round(raw['sessions'] / max(1, days), 1),
+            'provenance': 'dimensionless GA4 period request'}
+        meta = getattr(response, 'metadata', None)
+        result['measurement'] = {'channel': 'Organic Search', 'currency': getattr(meta, 'currency_code', None),
+            'timezone': getattr(meta, 'time_zone', None),
+            'thresholded': getattr(meta, 'subject_to_thresholding', None),
+            'data_loss_from_other_row': getattr(meta, 'data_loss_from_other_row', None)}
+    except Exception as e:
+        result['totals'] = {}
+        result['error'] = f'GA4 aggregate query failed: {e}'
+    result['status'] = 'failed' if result.get('error') else ('partial' if result.get('pages_error') else 'ok')
 
     return result
 
@@ -265,7 +279,9 @@ def top_pages_report(
         "pages": report.get("top_pages", []),
         "total_organic_sessions": report.get("totals", {}).get("sessions", 0),
         "quota_tokens_used": report.get("quota_tokens_used"),
-        "error": report.get("error"),
+        "error": report.get("error") or report.get("pages_error"),
+        "status": report.get("status"),
+        "pages_error": report.get("pages_error"),
     }
 
 
@@ -405,7 +421,7 @@ def main():
     parser.add_argument("--days", "-d", type=int, default=28, help="Number of days (default: 28)")
     parser.add_argument(
         "--report", "-r",
-        choices=["organic", "top-pages", "device", "country"],
+        choices=["organic", "outcomes", "top-pages", "device", "country"],
         default="organic",
         help="Report type (default: organic)",
     )
@@ -473,6 +489,8 @@ def main():
                 for i, page in enumerate(pages[:10], 1):
                     print(f"  {i:2d}. {page['landing_page']} ({page['sessions']:,} sessions)")
 
+    return 1 if result.get("error") or result.get("pages_error") else 0
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

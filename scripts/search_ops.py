@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 SCHEMA_VERSION = 2
-DEFAULT_STATE = '.legion/seo/interventions/search-ops.json'
+DEFAULT_STATE = '.seo/interventions/search-ops.json'
 OUTCOME_VERDICTS = {'improved', 'declined', 'mixed', 'inconclusive', 'not_measurable', 'immature'}
 
 

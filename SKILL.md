@@ -31,7 +31,7 @@ TERMINAL: Frozen scope has explicit evidence coverage, one primary next action o
 
 Freeze domain, market, language, page/query set, dates, repository, access, business goal, irreversible effects, and evidence budget. When durable project context exists, load it rather than rediscovering goals/market/competitors/key pages every run; `references/openseo-absorption.md` defines the portable project-state contract.
 
-SEO owns search diagnosis and search-specific methods. Legion owns orchestration across capabilities; this skill does not spawn agents or invoke other skills. Writing owns prose, Marketing owns broader commercial strategy, Designer owns presentation/UX work, and authorized execution follows Legion's normal effect/verification lifecycle.
+SEO is fully standalone. Its runtime owns project state, scheduling, provider calls, policy, execution records and verification. The harness may optionally use writing, coding or design roles, including Legion roles when installed; none is required by SEO. Never install or invoke Legion to run SEO. Use seo.py for bounded operations and references/standalone-operations.md for the executable interface.
 
 ## Route
 

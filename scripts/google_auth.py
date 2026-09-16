@@ -22,8 +22,12 @@ import sys
 import time
 from typing import Optional
 
-CONFIG_PATH = os.path.expanduser("~/.config/claude-seo/google-api.json")
-TOKEN_PATH = os.path.expanduser("~/.config/claude-seo/oauth-token.json")
+CONFIG_DIR = os.path.expanduser(os.environ.get("SEO_CONFIG_DIR", "~/.config/seo"))
+LEGACY_CONFIG_DIR = os.path.expanduser("~/.config/claude-seo")
+if not os.environ.get("SEO_CONFIG_DIR") and not os.path.exists(CONFIG_DIR) and os.path.exists(LEGACY_CONFIG_DIR):
+    CONFIG_DIR = LEGACY_CONFIG_DIR  # compatibility only; no Claude runtime dependency
+CONFIG_PATH = os.path.join(CONFIG_DIR, "google-api.json")
+TOKEN_PATH = os.path.join(CONFIG_DIR, "oauth-token.json")
 
 # Service-to-scope mapping
 SCOPES = {
@@ -175,6 +179,8 @@ def _save_oauth_token(token_data: dict):
     os.makedirs(os.path.dirname(TOKEN_PATH), exist_ok=True)
     with open(TOKEN_PATH, "w") as f:
         json.dump(token_data, f, indent=2)
+    if os.name != "nt":
+        os.chmod(TOKEN_PATH, 0o600)
 
 
 def _refresh_oauth_token(client: dict, token_data: dict) -> Optional[dict]:
@@ -194,7 +200,7 @@ def _refresh_oauth_token(client: dict, token_data: dict) -> Optional[dict]:
 
     try:
         req = urllib.request.Request(client.get("token_uri", "https://oauth2.googleapis.com/token"), data=params)
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             new_data = json.loads(resp.read())
         token_data["access_token"] = new_data["access_token"]
         token_data["expires_at"] = time.time() + new_data.get("expires_in", 3600)
@@ -345,7 +351,7 @@ def _exchange_code(client: dict, code: str):
         req = urllib.request.Request(
             client.get("token_uri", "https://oauth2.googleapis.com/token"), data=params
         )
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             token_data = json.loads(resp.read())
         token_data["expires_at"] = time.time() + token_data.get("expires_in", 3600)
         token_data["client_id"] = client["client_id"]
