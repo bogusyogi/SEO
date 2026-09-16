@@ -1,0 +1,5 @@
+{
+  "name": "orthic-seo",
+  "owner": {"name": "Orthic Labs"},
+  "plugins": [{"name": "seo", "source": "./", "description": "Independent SEO operations"}]
+}

@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*
+!.env.example
+.seo/
+.legion/
+.unlighthouse/
+*.db
+*.db-shm
+*.db-wal
+dist/
+node_modules/
+repair-test.log

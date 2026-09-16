@@ -1,7 +1,9 @@
 {
   "name": "seo",
-  "version": "0.1.0",
-  "description": "Standalone SEO/AEO/GEO operating system extracted from Legion",
-  "skills": ["SKILL.md"],
-  "agents": ["agents/openai.yaml"]
+  "version": "0.2.0",
+  "description": "Independent first-party-first SEO operations and persistent site state",
+  "author": {"name": "Orthic Labs"},
+  "repository": "https://github.com/bogusyogi/SEO",
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json"
 }

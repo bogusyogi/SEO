@@ -1,0 +1,8 @@
+{
+  "name": "seo",
+  "version": "0.2.0",
+  "description": "Independent SEO operations; Legion is not required",
+  "author": {"name": "Orthic Labs"},
+  "repository": "https://github.com/bogusyogi/SEO",
+  "skills": "./skills/"
+}

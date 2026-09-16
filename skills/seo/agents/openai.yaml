@@ -1,0 +1,6 @@
+interface:
+  display_name: "SEO"
+  short_description: "Independent SEO and first-party analytics"
+  default_prompt: "Use $seo to collect evidence and execute authorized site work."
+policy:
+  allow_implicit_invocation: true
