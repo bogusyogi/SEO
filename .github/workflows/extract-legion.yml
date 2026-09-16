@@ -1,0 +1,84 @@
+name: Extract pinned Legion SEO
+
+on:
+  push:
+    paths: ['.github/workflows/extract-legion.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: seo-extraction
+  cancel-in-progress: false
+
+jobs:
+  extract:
+    if: github.repository == 'bogusyogi/SEO'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: Orthic-Labs/legion
+          ref: a4eaaa223c284ab81641c4283903648a2a8c1f14
+          path: .source-legion
+          persist-credentials: false
+      - name: Preserve source snapshot and extract SEO assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C .source-legion archive --format=zip --output="$RUNNER_TEMP/legion-baseline.zip" HEAD
+          python - <<'PY'
+          import hashlib, json, pathlib, shutil, subprocess
+          root = pathlib.Path('.')
+          donor = root / '.source-legion'
+          pin = 'a4eaaa223c284ab81641c4283903648a2a8c1f14'
+          actual = subprocess.check_output(['git', '-C', str(donor), 'rev-parse', 'HEAD'], text=True).strip()
+          if actual != pin:
+              raise SystemExit('source pin mismatch')
+          destination = root / 'skills' / 'seo'
+          manifest_path = root / 'docs' / 'extraction' / 'source-inventory.json'
+          if destination.exists() or manifest_path.exists():
+              print('Extraction already present; refusing to overwrite a developed standalone tree.')
+          else:
+              source = donor / 'skills' / 'seo'
+              shutil.copytree(source, destination)
+              (root / 'docs').mkdir(exist_ok=True)
+              shutil.copy2(donor / 'LICENSE', root / 'LICENSE')
+              shutil.copy2(donor / 'docs' / 'THIRD_PARTY_NOTICES.md', root / 'docs' / 'THIRD_PARTY_NOTICES.md')
+              rows = []
+              for path in sorted(source.rglob('*')):
+                  if path.is_file():
+                      data = path.read_bytes()
+                      rel = path.relative_to(donor).as_posix()
+                      copied = root / rel
+                      if copied.read_bytes() != data:
+                          raise SystemExit(f'copy mismatch: {rel}')
+                      rows.append({'source_path': rel, 'destination_path': rel, 'source_sha256': hashlib.sha256(data).hexdigest(), 'source_bytes': len(data), 'source_git_blob': hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()})
+              manifest_path.parent.mkdir(parents=True, exist_ok=True)
+              manifest = {'schema_version': 1, 'repository': 'Orthic-Labs/legion', 'source_commit': pin, 'extracted_on': '2026-09-16', 'scope': 'all tracked assets under skills/seo plus source license and third-party notices', 'file_count': len(rows), 'files': rows}
+              manifest_path.write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+              print(f'Copied and byte-verified {len(rows)} SEO files from {pin}')
+          PY
+      - name: Commit preserved extraction
+        shell: bash
+        env:
+          TARGET_BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add skills/seo LICENSE docs/THIRD_PARTY_NOTICES.md docs/extraction/source-inventory.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'feat: extract complete SEO assets from Legion a4eaaa2 with provenance'
+            git push origin "HEAD:$TARGET_BRANCH"
+          fi
+      - name: Make exact source available for extraction qualification
+        uses: actions/upload-artifact@v4
+        with:
+          name: legion-extraction-source
+          path: ${{ runner.temp }}/legion-baseline.zip
+          retention-days: 1
+          if-no-files-found: error
