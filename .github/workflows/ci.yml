@@ -4,13 +4,36 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m unittest discover -s tests -p 'test_*.py'
-      - run: python scripts/seo_closure.py
+      - name: Reproducible source snapshot
+        run: |
+          mkdir -p ci-evidence
+          git archive --format=tar HEAD > ci-evidence/seo-source.tar
+          git rev-parse HEAD > ci-evidence/source-commit.txt
+      - name: Python regressions
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -p 'test_*.py' -v 2>&1 | tee ci-evidence/python-tests.txt
+      - name: Standalone closure
+        if: always()
+        run: |
+          set -o pipefail
+          python scripts/seo_closure.py --json 2>&1 | tee ci-evidence/closure.json
+      - name: Retain qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seo-qualification-${{ github.sha }}
+          path: ci-evidence/
+          retention-days: 7
