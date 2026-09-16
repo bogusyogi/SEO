@@ -84,6 +84,8 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
+          # Workflow changes use the authorized connector separately, not the Actions token.
+          git restore --source=HEAD --staged --worktree .github/workflows
           git commit -m "feat: restore and qualify independent SEO runtime and plugins"
           git push origin HEAD:refs/heads/seo/standalone-repair-20260916
           git rev-parse HEAD | tee "$RUNNER_TEMP/seo-commit.txt"
