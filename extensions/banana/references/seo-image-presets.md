@@ -123,7 +123,7 @@ preset format (see `references/presets.md` for schema details).
 
 Users can create their own presets:
 ```bash
-python3 legion-skill://seo/extensions/banana/scripts/presets.py create my-brand
+python3 ${SEO_ROOT}/extensions/banana/scripts/presets.py create my-brand
 ```
 
 This creates `~/.banana/presets/my-brand.json` with the full schema.

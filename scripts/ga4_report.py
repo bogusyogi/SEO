@@ -24,6 +24,7 @@ try:
         Dimension,
         Filter,
         FilterExpression,
+        FilterExpressionList,
         Metric,
         OrderBy,
         RunReportRequest,
@@ -44,6 +45,15 @@ except ImportError:
     from google_auth import get_oauth_credentials, load_config
 
 GA4_SCOPES = ["https://www.googleapis.com/auth/analytics.readonly"]
+
+
+def _organic_filter(hostname=None):
+    expressions = [FilterExpression(filter=Filter(field_name='sessionDefaultChannelGroup',
+        string_filter=Filter.StringFilter(match_type=Filter.StringFilter.MatchType.EXACT, value='Organic Search')))]
+    if hostname:
+        expressions.append(FilterExpression(filter=Filter(field_name='hostName',
+            string_filter=Filter.StringFilter(match_type=Filter.StringFilter.MatchType.EXACT, value=hostname))))
+    return FilterExpression(and_group=FilterExpressionList(expressions=expressions))
 
 
 def _build_ga4_client():
@@ -71,6 +81,7 @@ def organic_traffic_report(
     property_id: str,
     days: int = 28,
     limit: int = 100,
+    hostname: Optional[str] = None,
 ) -> dict:
     """
     Generate organic traffic report from GA4.
@@ -110,6 +121,7 @@ def organic_traffic_report(
     end_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     result["date_range"] = {"start": start_date, "end": end_date}
 
+    result['hostname_filter'] = hostname
     # Daily organic sessions
     try:
         daily_request = RunReportRequest(
@@ -124,15 +136,7 @@ def organic_traffic_report(
                 Metric(name="engagementRate"),
             ],
             date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
-            dimension_filter=FilterExpression(
-                filter=Filter(
-                    field_name="sessionDefaultChannelGroup",
-                    string_filter=Filter.StringFilter(
-                        match_type=Filter.StringFilter.MatchType.EXACT,
-                        value="Organic Search",
-                    ),
-                )
-            ),
+            dimension_filter=_organic_filter(hostname),
             order_bys=[OrderBy(dimension=OrderBy.DimensionOrderBy(dimension_name="date"))],
             limit=days + 5,
             return_property_quota=True,
@@ -191,15 +195,7 @@ def organic_traffic_report(
                 Metric(name="engagementRate"),
             ],
             date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
-            dimension_filter=FilterExpression(
-                filter=Filter(
-                    field_name="sessionDefaultChannelGroup",
-                    string_filter=Filter.StringFilter(
-                        match_type=Filter.StringFilter.MatchType.EXACT,
-                        value="Organic Search",
-                    ),
-                )
-            ),
+            dimension_filter=_organic_filter(hostname),
             order_bys=[
                 OrderBy(
                     metric=OrderBy.MetricOrderBy(metric_name="sessions"),
@@ -231,9 +227,7 @@ def organic_traffic_report(
         response = client.run_report(RunReportRequest(
             property=prop, dimensions=[], metrics=[Metric(name=n) for n in names],
             date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
-            dimension_filter=FilterExpression(filter=Filter(
-                field_name='sessionDefaultChannelGroup',
-                string_filter=Filter.StringFilter(match_type=Filter.StringFilter.MatchType.EXACT, value='Organic Search'))),
+            dimension_filter=_organic_filter(hostname),
             return_property_quota=True))
         raw = dict(zip(names, [float(v.value) for v in response.rows[0].metric_values])) if response.rows else dict.fromkeys(names, 0)
         result['totals'] = {'sessions': int(raw['sessions']), 'users': int(raw['totalUsers']),
@@ -258,6 +252,7 @@ def top_pages_report(
     property_id: str,
     days: int = 28,
     limit: int = 50,
+    hostname: Optional[str] = None,
 ) -> dict:
     """
     Get top organic landing pages from GA4.
@@ -270,14 +265,14 @@ def top_pages_report(
     Returns:
         Dictionary with top pages ranked by organic sessions.
     """
-    report = organic_traffic_report(property_id, days, limit)
+    report = organic_traffic_report(property_id, days, limit, hostname)
     # Slim it down to just pages
     return {
         "property": property_id,
         "report": "top_organic_pages",
         "date_range": report.get("date_range"),
         "pages": report.get("top_pages", []),
-        "total_organic_sessions": report.get("totals", {}).get("sessions", 0),
+        "total_organic_sessions": report.get("totals", {}).get("sessions"),
         "quota_tokens_used": report.get("quota_tokens_used"),
         "error": report.get("error") or report.get("pages_error"),
         "status": report.get("status"),
@@ -288,6 +283,7 @@ def top_pages_report(
 def device_breakdown(
     property_id: str,
     days: int = 28,
+    hostname: Optional[str] = None,
 ) -> dict:
     """
     Organic sessions broken down by device category.
@@ -322,15 +318,7 @@ def device_breakdown(
                 Metric(name="engagementRate"),
             ],
             date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
-            dimension_filter=FilterExpression(
-                filter=Filter(
-                    field_name="sessionDefaultChannelGroup",
-                    string_filter=Filter.StringFilter(
-                        match_type=Filter.StringFilter.MatchType.EXACT,
-                        value="Organic Search",
-                    ),
-                )
-            ),
+            dimension_filter=_organic_filter(hostname),
             order_bys=[OrderBy(metric=OrderBy.MetricOrderBy(metric_name="sessions"), desc=True)],
         )
         response = client.run_report(request)
@@ -352,6 +340,7 @@ def country_breakdown(
     property_id: str,
     days: int = 28,
     limit: int = 20,
+    hostname: Optional[str] = None,
 ) -> dict:
     """
     Organic sessions broken down by country.
@@ -385,15 +374,7 @@ def country_breakdown(
                 Metric(name="totalUsers"),
             ],
             date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
-            dimension_filter=FilterExpression(
-                filter=Filter(
-                    field_name="sessionDefaultChannelGroup",
-                    string_filter=Filter.StringFilter(
-                        match_type=Filter.StringFilter.MatchType.EXACT,
-                        value="Organic Search",
-                    ),
-                )
-            ),
+            dimension_filter=_organic_filter(hostname),
             order_bys=[OrderBy(metric=OrderBy.MetricOrderBy(metric_name="sessions"), desc=True)],
             limit=limit,
         )
@@ -428,7 +409,10 @@ def main():
     parser.add_argument("--limit", type=int, default=50, help="Max rows (default: 50)")
     parser.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 
+    parser.add_argument("--hostname", help="scope a multi-host property to this exact hostname")
     args = parser.parse_args()
+    if args.days < 1 or args.limit < 1:
+        parser.error("days and limit must be positive")
 
     # Resolve property
     prop = args.property
@@ -446,13 +430,13 @@ def main():
         sys.exit(1)
 
     if args.report == "top-pages":
-        result = top_pages_report(prop, args.days, args.limit)
+        result = top_pages_report(prop, args.days, args.limit, args.hostname)
     elif args.report == "device":
-        result = device_breakdown(prop, args.days)
+        result = device_breakdown(prop, args.days, args.hostname)
     elif args.report == "country":
-        result = country_breakdown(prop, args.days, args.limit)
+        result = country_breakdown(prop, args.days, args.limit, args.hostname)
     else:
-        result = organic_traffic_report(prop, args.days, args.limit)
+        result = organic_traffic_report(prop, args.days, args.limit, args.hostname)
 
     if result.get("error"):
         print(f"Error: {result['error']}", file=sys.stderr)

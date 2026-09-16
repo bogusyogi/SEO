@@ -9,6 +9,7 @@ import os
 import sys
 import uuid
 from pathlib import Path
+from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from seo_runtime import Runtime
 from provider_doctor import doctor
@@ -22,41 +23,41 @@ except ImportError:
 def build_server(root=None):
     project = Path(root or os.environ.get('SEO_PROJECT_ROOT') or os.getcwd()).resolve()
     server = MCPServer('SEO', version='0.2.0', instructions='Use real evidence. This server is scoped to one configured site. Queue proposals, never invent approval. Legion is not required.')
-    @server.tool()
-    def seo_status() -> dict:
+    @server.tool(structured_output=True)
+    def seo_status() -> dict[str, Any]:
         """Read configured site identity and job states; does not execute queued jobs."""
         runtime = Runtime(project)
         return {'site': runtime.site['domain'], 'jobs': runtime.jobs()}
-    @server.tool()
-    def seo_doctor(live: bool = False) -> dict:
+    @server.tool(structured_output=True)
+    def seo_doctor(live: bool = False) -> dict[str, Any]:
         """Check configuration; live=true performs bounded authenticated property reads."""
         return doctor(project, live=live)
-    @server.tool()
-    def seo_collect(provider: str, options: dict | None = None) -> dict:
+    @server.tool(structured_output=True)
+    def seo_collect(provider: str, options: dict | None = None) -> dict[str, Any]:
         """Collect evidence for this site only. Does not drain other jobs or publish."""
         runtime = Runtime(project)
         job = runtime.enqueue('collect', {'provider': provider, 'options': options or {}}, key=uuid.uuid4().hex)
         return runtime.tick(limit=1, only_id=job['id'])
-    @server.tool()
-    def seo_report() -> dict:
+    @server.tool(structured_output=True)
+    def seo_report() -> dict[str, Any]:
         """Produce an evidence-health brief from stored observations; no publication."""
         runtime = Runtime(project)
         job = runtime.enqueue('report', {}, key=uuid.uuid4().hex)
         return runtime.tick(limit=1, only_id=job['id'])
-    @server.tool()
-    def seo_propose(kind: str, payload: dict) -> dict:
+    @server.tool(structured_output=True)
+    def seo_propose(kind: str, payload: dict) -> dict[str, Any]:
         """Queue an exact proposed action. Does not approve or execute it."""
         runtime = Runtime(project)
         job = runtime.enqueue(kind, payload)
         return {'job_id': job['id'], 'state': job['state'], 'approval': 'Separate owner approval or standing site policy is required for effects.'}
-    @server.tool()
-    def seo_execute(job_id: str) -> dict:
+    @server.tool(structured_output=True)
+    def seo_execute(job_id: str) -> dict[str, Any]:
         """Execute ONLY this due job if exact approval/standing policy permits; may mutate this site."""
         runtime = Runtime(project)
         runtime.row(job_id)
         return runtime.tick(limit=1, only_id=job_id)
-    @server.tool()
-    def seo_inspect(job_id: str) -> dict:
+    @server.tool(structured_output=True)
+    def seo_inspect(job_id: str) -> dict[str, Any]:
         """Read a queued job, its actual state and observed result from this site."""
         return Runtime(project).row(job_id)
     return server

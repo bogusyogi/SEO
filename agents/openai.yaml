@@ -1,6 +1,6 @@
 interface:
-  display_name: "Seo"
-  short_description: "Operate SEO, AEO, GEO and AI-search visibility: diagnose, prioritize, improve, verify and measure crawl/indexation, query ownership, SERP fit, content, entities, citations, Google generative visibility, Bing AI citations, CWV, schema, links, local/international/ecommerce search, and traffic or visibility changes."
-  default_prompt: "Use $seo when this request matches: Operate SEO, AEO, GEO and AI-search visibility: diagnose, prioritize, improve, verify and measure crawl/indexation, query ownership, SERP fit, content, entities, citations, Google generative visibility, Bing AI citations, CWV, schema, links, local/international/ecommerce search, and traffic or visibility changes."
+  display_name: "SEO"
+  short_description: "Independent SEO and first-party analytics"
+  default_prompt: "Use $seo to collect evidence and execute authorized site work."
 policy:
   allow_implicit_invocation: true

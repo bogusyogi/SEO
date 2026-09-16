@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime, timedelta
 from typing import Optional, Any
@@ -105,7 +106,10 @@ def normalize_result(*, site_url: str, start_date: str, end_date: str,
 def query(site_url: str, start_date: str, end_date: str, dimensions: list[str],
           search_type: str, page_size: int, max_rows: int,
           filters: Optional[list] = None, data_state: str = 'final') -> dict:
-    svc = service()
+    try:
+        svc = service()
+    except Exception as exc:
+        return {'error': f'cannot build GSC service ({type(exc).__name__})', 'property': site_url}
     if not svc:
         return {'error': 'could not build Search Console service; check Google client dependency and credentials'}
     common = {'startDate': start_date, 'endDate': end_date, 'type': search_type, 'dataState': data_state}
@@ -131,11 +135,15 @@ def query(site_url: str, start_date: str, end_date: str, dimensions: list[str],
                 break
     except Exception as exc:
         return {'error': str(exc), 'property': site_url}
-    return normalize_result(
+    result = normalize_result(
         site_url=site_url, start_date=start_date, end_date=end_date,
         dimensions=dimensions, search_type=search_type, aggregate_row=aggregate_row,
         rows=rows, max_rows=max_rows, hit_cap=hit_cap, data_state=data_state,
     )
+
+    result['filters'] = filters or []
+    result['aggregation_type'] = aggregate.get('responseAggregationType')
+    return result
 
 
 def main() -> int:
@@ -152,13 +160,22 @@ def main() -> int:
     ap.add_argument('--country')
     ap.add_argument('--data-state', choices=['final', 'all'], default='final')
     ap.add_argument('--out')
+    ap.add_argument('--page-prefix')
     args = ap.parse_args()
+    if args.days < 1 or args.max_rows < 1:
+        ap.error('days and max-rows must be positive')
+    if args.country and (len(args.country) != 3 or not args.country.isalpha()):
+        ap.error('GSC country must be an ISO 3166-1 alpha-3 code')
     prop = args.property or load_config_safe().get('default_property') or os.environ.get('GSC_PROPERTY')
     if not prop:
         raise SystemExit('--property required unless configured')
     end = args.end_date or (datetime.now() - timedelta(days=3)).strftime('%Y-%m-%d')
-    start = args.start_date or (datetime.now() - timedelta(days=args.days)).strftime('%Y-%m-%d')
+    start = args.start_date or (datetime.fromisoformat(end) - timedelta(days=args.days - 1)).strftime('%Y-%m-%d')
+    if datetime.fromisoformat(start) > datetime.fromisoformat(end):
+        ap.error('start date is after end date')
     filters = []
+    if args.page_prefix:
+        filters.append({'dimension': 'page', 'operator': 'includingRegex', 'expression': '^' + re.escape(args.page_prefix)})
     if args.device:
         filters.append({'dimension': 'device', 'operator': 'equals', 'expression': args.device.upper()})
     if args.country:

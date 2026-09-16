@@ -47,6 +47,8 @@ def run_json(argv, *, root, timeout=180, payload=None):
     if done.returncode:
         result.setdefault('error', f'adapter exited {done.returncode}')
         result['status'] = 'failed'
+    if result.get('error') and result.get('status') not in ('partial','unconfigured','unauthorized'):
+        result['status'] = 'failed'
     result['exit_code'] = done.returncode
     return result
 
@@ -119,6 +121,14 @@ def crawl(site, maximum=100):
             if not signals.get('title'): conditions.append(('missing_title', 'medium'))
             if not signals.get('canonical'): conditions.append(('missing_canonical', 'medium'))
             if not signals.get('meta_desc'): conditions.append(('missing_description', 'low'))
+            if not signals.get('h1'): conditions.append(('missing_h1', 'medium'))
+            elif len(signals['h1']) > 1: conditions.append(('multiple_h1', 'low'))
+            if signals.get('mixed_content'): conditions.append(('mixed_content', 'high'))
+            if signals.get('img_no_alt', 0): conditions.append(('image_alt_missing', 'medium'))
+            if not signals.get('viewport'): conditions.append(('missing_viewport', 'medium'))
+            if signals.get('canonical') and urljoin(data['url'], signals['canonical']) != data['url']:
+                conditions.append(('canonical_differs_review_intent', 'medium'))
+            if len(data['chain']) > 1: conditions.append(('redirected_url', 'low'))
             for rule, severity in conditions:
                 issues.append({'id': digest([rule, url]), 'severity': severity, 'target': url, 'observed': rule, 'state': 'observed'})
             parser = Links(); parser.feed(html)
@@ -130,6 +140,22 @@ def crawl(site, maximum=100):
                         queue.append(target)
         except Exception as exc:
             errors.append({'url': url, 'error': type(exc).__name__})
+    from collections import defaultdict
+    for field in ('title', 'meta_desc'):
+        groups = defaultdict(list)
+        for page in pages:
+            if page.get(field): groups[page[field]].append(page['url'])
+        for value, urls in groups.items():
+            if len(urls) > 1:
+                for url in urls:
+                    issues.append({'id': digest(['duplicate_' + field, url]), 'severity': 'medium', 'target': url,
+                        'observed': 'duplicate_' + field, 'state': 'observed', 'same_value_urls': urls})
+    fetched = {p['url']: p for p in pages}
+    for edge in edges:
+        target = fetched.get(edge['to'])
+        if target and target['status'] >= 400:
+            issues.append({'id': digest(['broken_internal_link', edge]), 'severity': 'high', 'target': edge['from'],
+                'observed': 'broken_internal_link', 'state': 'observed', 'link_target': edge['to'], 'http_status': target['status']})
     return {'status': 'partial' if errors or queue or maps else 'ok', 'pages': pages, 'issues': issues,
         'errors': errors, 'edges': edges, 'coverage': {'pages_fetched': len(pages), 'budget': maximum,
         'discovered_sitemap_urls': len(sitemap_urls), 'remaining_queue': len(queue), 'site_complete': False},
@@ -139,10 +165,12 @@ def collect(root, site, provider, options=None):
     options = options or {}
     properties = site.get('properties') or {}
     command = [sys.executable]
-    if provider == 'gsc':
+    if provider in ('gsc', 'gsc_ranks'):
         prop = properties.get('gsc')
         if not prop: return {'status': 'unconfigured', 'error': 'GSC property mapping missing'}
         command += [str(HERE / 'gsc_query_v2.py'), '--property', prop, '--days', str(options.get('days', 28)), '--max-rows', str(min(int(options.get('max_rows', 25000)), 100000)), '--page-prefix', site['base_url']]
+        if provider == 'gsc_ranks':
+            command += ['--dimensions', 'query']
     elif provider == 'ga4':
         prop = properties.get('ga4')
         if not prop: return {'status': 'unconfigured', 'error': 'GA4 property mapping missing'}
@@ -164,6 +192,14 @@ def collect(root, site, provider, options=None):
     return envelope(site, provider, run_json(command, root=root))
 
 def envelope(site, provider, data):
+    if provider == 'pagespeed':
+        lanes = list((data.get('psi') or {}).values())
+        if data.get('crux') is not None: lanes.append(data['crux'])
+        failures = [lane.get('error') for lane in lanes if isinstance(lane, dict) and lane.get('error')]
+        if failures:
+            data['status'] = 'partial' if len(failures) < len(lanes) else 'failed'
+            data['error'] = 'One or more performance evidence lanes failed'
+            data['lane_errors'] = failures
     status = data.get('status', 'failed' if data.get('error') else 'ok')
     if data.get('error') and status == 'ok': status = 'failed'
     return {'schema_version': 1, 'site': site['domain'], 'provider': provider, 'collected_at': stamp(),

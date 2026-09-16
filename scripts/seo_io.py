@@ -74,7 +74,7 @@ class PinnedHTTP(http.client.HTTPConnection):
     def connect(self):
         self.sock = socket.create_connection((self.address, self.port), self.timeout)
 
-def fetch(url: str, allowed_hosts: set[str], *, method='GET', redirects=5, limit=MAX_BYTES) -> dict:
+def fetch(url: str, allowed_hosts: set[str], *, method='GET', redirects=5, limit=MAX_BYTES, follow_redirects=True) -> dict:
     """Pin validated DNS to the connection; revalidate every redirect. No cookies/proxy auth."""
     if method not in ('GET', 'HEAD'):
         raise ValueError('public evidence fetch is read-only')
@@ -94,7 +94,7 @@ def fetch(url: str, allowed_hosts: set[str], *, method='GET', redirects=5, limit
         finally:
             conn.close()
         chain.append({'url': url, 'status': code})
-        if code in (301, 302, 303, 307, 308) and headers.get('location'):
+        if follow_redirects and code in (301, 302, 303, 307, 308) and headers.get('location'):
             if hop == redirects:
                 raise ValueError('redirect budget exhausted')
             url = urljoin(url, headers['location'])

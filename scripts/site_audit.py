@@ -22,29 +22,28 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def get(url, method='GET'):
-    try:
-        req = urllib.request.Request(url, headers={'User-Agent': UA}, method=method)
-        r = urllib.request.urlopen(req, timeout=20)
-        body = r.read().decode('utf-8', 'ignore') if method == 'GET' else ''
-        return r.getcode(), r.geturl(), body, dict(r.headers)
-    except urllib.error.HTTPError as exc:
-        return exc.code, url, '', dict(exc.headers or {})
-    except Exception as exc:
-        return 0, url, str(exc), {}
+AUDIT_ALLOWED_HOSTS = None
 
+def get(url, method='GET'):
+    from seo_io import fetch
+    host = urllib.parse.urlsplit(url).hostname
+    allowed = AUDIT_ALLOWED_HOSTS or {host}
+    try:
+        response = fetch(url, allowed, method=method)
+        return response['status'], response['url'], response['body'].decode('utf-8', 'replace'), response['headers']
+    except Exception as exc:
+        return 0, url, type(exc).__name__, {}
 
 def status_only(url):
-    for method in ('HEAD', 'GET'):
-        try:
-            req = urllib.request.Request(url, headers={'User-Agent': UA}, method=method)
-            r = urllib.request.build_opener(NoRedirect).open(req, timeout=15)
-            return r.getcode(), r.headers.get('Location')
-        except urllib.error.HTTPError as exc:
-            return exc.code, (exc.headers or {}).get('Location')
-        except Exception:
-            continue
-    return 0, None
+    from seo_io import fetch
+    host = urllib.parse.urlsplit(url).hostname
+    try:
+        response = fetch(url, AUDIT_ALLOWED_HOSTS or {host}, method='HEAD', follow_redirects=False)
+        if response['status'] == 405:
+            response = fetch(url, AUDIT_ALLOWED_HOSTS or {host}, follow_redirects=False)
+        return response['status'], response['headers'].get('location')
+    except Exception:
+        return 0, None
 
 
 def normalize(url):
@@ -102,6 +101,8 @@ def sitemap_urls(url, seen=None):
 
 
 def audit(start, maxpages):
+    global AUDIT_ALLOWED_HOSTS
+    AUDIT_ALLOWED_HOSTS = {urllib.parse.urlsplit(start).hostname}
     start = start.rstrip('/')
     sp = urllib.parse.urlsplit(start)
     origin, host = f'{sp.scheme}://{sp.netloc}', sp.netloc

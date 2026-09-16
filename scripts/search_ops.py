@@ -83,6 +83,13 @@ def cmd_start(args, state):
 
 def cmd_deploy(args, state):
     row = find_intervention(state, args.id)
+    previous = row.get('deployment')
+    if previous and previous.get('idempotency_key') == args.idempotency_key:
+        if previous.get('identity') != args.identity or previous.get('effect_receipt') != args.effect_receipt:
+            raise SystemExit('conflicting deployment reuse of idempotency key')
+        return row
+    if previous:
+        raise SystemExit('deployment already recorded; create a new intervention for a new deployment')
     if row.get('status') not in {'proposed', 'deployed'}:
         raise SystemExit(f"cannot deploy intervention in state {row.get('status')}")
     row['status'] = 'deployed'
@@ -115,6 +122,14 @@ def cmd_outcome(args, state):
     row = find_intervention(state, args.id)
     if not row.get('deployment'):
         raise SystemExit('outcome cannot be recorded before deployment')
+    if args.verdict != 'immature':
+        if (row.get('verification') or {}).get('result') != 'pass':
+            raise SystemExit('outcome requires verified deployment')
+        earliest = (row.get('evaluation') or {}).get('earliest_date')
+        if not earliest or datetime.now(timezone.utc).date() < datetime.fromisoformat(earliest.replace('Z', '+00:00')).date():
+            raise SystemExit('outcome observation window is not mature')
+        if not args.evidence:
+            raise SystemExit('outcome requires evidence')
     outcome = {
         'recorded_at': utc_now(),
         'verdict': args.verdict,
@@ -210,11 +225,13 @@ def main() -> int:
 
     args = ap.parse_args()
     path = Path(args.state)
-    state = load_state(path)
-    fn = globals()[f"cmd_{args.command.replace('-', '_')}"]
-    result = fn(args, state)
-    if args.command != 'brief':
-        save_state(path, state)
+    from state_lock import state_lock
+    with state_lock(path):
+        state = load_state(path)
+        fn = globals()[f"cmd_{args.command.replace('-', '_')}"]
+        result = fn(args, state)
+        if args.command != 'brief':
+            save_state(path, state)
     print(json.dumps(result, indent=2))
     return 0
 

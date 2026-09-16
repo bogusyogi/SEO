@@ -30,7 +30,7 @@ def main(argv=None):
     p = sub.add_parser('doctor'); p.add_argument('--live', action='store_true')
     p.add_argument('--provider', choices=['gsc', 'ga4', 'bing_links'], action='append')
     sub.add_parser('migrate-state')
-    p = sub.add_parser('collect'); p.add_argument('provider', choices=['gsc', 'ga4', 'bing_links', 'crawl', 'pagespeed'])
+    p = sub.add_parser('collect'); p.add_argument('provider', choices=['gsc', 'gsc_ranks', 'ga4', 'bing_links', 'crawl', 'pagespeed'])
     p.add_argument('--options', help='JSON file containing provider options')
     sub.add_parser('report')
     p = sub.add_parser('enqueue'); p.add_argument('kind', choices=['collect', 'report', 'draft', 'patch', 'publish', 'rollback', 'deliver'])

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Google API credential management for Claude SEO.
+Google API credential management for SEO.
 
 Loads and validates credentials for Google Search Console, PageSpeed Insights,
 CrUX, Indexing API, and GA4. Supports service accounts, OAuth web credentials
@@ -48,10 +48,10 @@ SERVICE_AUTH = {
 }
 
 OAUTH_SCOPES = (
-    "https://www.googleapis.com/auth/indexing "
-    "https://www.googleapis.com/auth/webmasters "
+    "https://www.googleapis.com/auth/webmasters.readonly "
     "https://www.googleapis.com/auth/analytics.readonly"
 )
+
 OAUTH_REDIRECT_URI = "http://localhost:8085"
 
 # Human-readable service names
@@ -175,11 +175,15 @@ def _load_oauth_token() -> Optional[dict]:
 
 
 def _save_oauth_token(token_data: dict):
-    """Save OAuth token to TOKEN_PATH."""
-    os.makedirs(os.path.dirname(TOKEN_PATH), exist_ok=True)
-    with open(TOKEN_PATH, "w") as f:
-        json.dump(token_data, f, indent=2)
-    if os.name != "nt":
+    """Atomically replace private token storage without world-readable intermediate files."""
+    from seo_io import atomic_write
+    from pathlib import Path
+    directory = Path(TOKEN_PATH).parent
+    directory.mkdir(parents=True, exist_ok=True)
+    if os.name != 'nt':
+        os.chmod(directory, 0o700)
+    atomic_write(Path(TOKEN_PATH), (json.dumps(token_data, indent=2) + '\n').encode())
+    if os.name != 'nt':
         os.chmod(TOKEN_PATH, 0o600)
 
 
@@ -635,7 +639,7 @@ Google SEO API Setup Instructions
    - Google Search Console API
    - PageSpeed Insights API
    - Chrome UX Report API
-   - Web Search Indexing API (for Indexing API)
+   - Optional: Indexing API only for eligible content and explicitly authorized submissions
    - Google Analytics Data API (for GA4)
 
 3. CREATE AN API KEY (for PSI, CrUX -- free, no service account needed)
@@ -653,8 +657,8 @@ Google SEO API Setup Instructions
      Paste email, set Viewer role
 
 6. CREATE CONFIG FILE
-   mkdir -p ~/.config/claude-seo
-   Save to ~/.config/claude-seo/google-api.json:
+   mkdir -p ~/.config/seo
+   Save to ~/.config/seo/google-api.json:
 
    {
      "service_account_path": "/path/to/service_account.json",
@@ -675,8 +679,9 @@ ENVIRONMENT VARIABLE ALTERNATIVES:
 
 
 def main():
+    global OAUTH_SCOPES
     parser = argparse.ArgumentParser(
-        description="Google API credential management for Claude SEO"
+        description="Google API credential management for SEO"
     )
     parser.add_argument(
         "--check",
@@ -719,7 +724,11 @@ def main():
         help="Authorization code to exchange (for --exchange)",
     )
 
+    parser.add_argument('--allow-write-scopes', action='store_true', help='Explicit opt-in to Search Console/indexing write scopes during OAuth setup; not needed for reporting')
     args = parser.parse_args()
+    if args.allow_write_scopes:
+        OAUTH_SCOPES = OAUTH_SCOPES.replace('webmasters.readonly', 'webmasters') + ' https://www.googleapis.com/auth/indexing'
+
 
     if args.auth:
         if not args.creds:

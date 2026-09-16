@@ -7,6 +7,8 @@ optional adapters, not dependencies.
 """
 from __future__ import annotations
 import json
+import math
+from contextlib import contextmanager
 import os
 import shutil
 import sqlite3
@@ -51,7 +53,7 @@ def load_site(root):
     gsc = props.get('gsc')
     if gsc:
         if gsc.startswith('sc-domain:'):
-            valid = gsc[10:] in (domain, domain.removeprefix('www.'))
+            valid = domain == gsc[10:] or domain.endswith('.' + gsc[10:])
         else:
             valid = urlsplit(gsc).hostname in site['allowed_hosts'] and site['base_url'].startswith(gsc)
         if not valid:
@@ -66,6 +68,8 @@ def load_site(root):
 
 def init_site(root, domain, market, language, **properties):
     from seo_project import setup_project
+    if not domain or '/' in domain or ':' in domain or not market or not language:
+        raise Blocked('explicit hostname, market and language are required')
     root = Path(root).resolve()
     if (root / '.legion' / 'seo').exists() and not (root / '.seo').exists():
         raise Blocked('Legacy state exists: migrate-state before init')
@@ -124,12 +128,16 @@ class Runtime:
                 CREATE TABLE IF NOT EXISTS events (
                   sequence INTEGER PRIMARY KEY, job_id TEXT, state TEXT, recorded REAL);
             ''')
+    @contextmanager
     def connection(self):
         db = sqlite3.connect(self.db_path, timeout=30, isolation_level=None)
         db.row_factory = sqlite3.Row
         db.execute('PRAGMA journal_mode=WAL')
         db.execute('PRAGMA busy_timeout=30000')
-        return db
+        try:
+            yield db
+        finally:
+            db.close()
     def config(self):
         self.site = load_site(self.root)
         return self.site
@@ -147,6 +155,8 @@ class Runtime:
         site = self.config()
         identity = digest({'site': site['domain'], 'kind': kind, 'payload': payload, 'key': key})
         moment = time.time()
+        if due is not None and not math.isfinite(due):
+            raise Blocked('job due time must be finite')
         with self.connection() as db:
             db.execute('INSERT OR IGNORE INTO jobs(id,kind,payload,config_digest,state,due,created,updated) VALUES(?,?,?,?,?,?,?,?)',
                 (identity, kind, json.dumps(payload, sort_keys=True), digest(site), 'pending', due if due is not None else moment, moment, moment))
@@ -163,7 +173,7 @@ class Runtime:
             db.execute("UPDATE jobs SET approved=?,state='pending',updated=? WHERE id=?", (token, time.time(), job_id))
         return self.row(job_id)
     def add_schedule(self, name, provider_payload, hours=24, kind='collect'):
-        if kind not in ('collect', 'report') or not isinstance(hours, (int, float)) or hours < 1:
+        if kind not in ('collect', 'report') or not isinstance(hours, (int, float)) or not math.isfinite(hours) or hours < 1:
             raise Blocked('recurrence is restricted to collection/reporting at intervals of at least one hour')
         with self.connection() as db:
             db.execute('INSERT INTO schedules VALUES(?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET kind=excluded.kind,payload=excluded.payload,interval=excluded.interval',
@@ -185,7 +195,7 @@ class Runtime:
                 db.execute('COMMIT')
             except Exception:
                 db.execute('ROLLBACK'); raise
-    def claim(self):
+    def claim(self, only_id=None):
         now, token = time.time(), uuid.uuid4().hex
         with self.connection() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -194,7 +204,7 @@ class Runtime:
                 for old in db.execute("SELECT id,kind FROM jobs WHERE state='running' AND lease<?", (now,)).fetchall():
                     state = 'uncertain' if old['kind'] in WRITE else 'retry'
                     db.execute('UPDATE jobs SET state=?,claim=NULL,updated=? WHERE id=?', (state, now, old['id']))
-                row = db.execute("SELECT * FROM jobs WHERE state IN ('pending','retry') AND due<=? ORDER BY due,created LIMIT 1", (now,)).fetchone()
+                row = db.execute("SELECT * FROM jobs WHERE state IN ('pending','retry') AND due<=? AND (? IS NULL OR id=?) AND (kind IN ('collect','report','draft') OR NOT EXISTS(SELECT 1 FROM jobs WHERE state='running' AND kind IN ('patch','publish','rollback','deliver'))) ORDER BY due,created LIMIT 1", (now, only_id, only_id)).fetchone()
                 if row:
                     db.execute("UPDATE jobs SET state='running',lease=?,claim=?,attempts=attempts+1,updated=? WHERE id=?", (now+900, token, now, row['id']))
                 db.execute('COMMIT')
@@ -224,16 +234,17 @@ class Runtime:
         cost = float(config.get('max_cost_usd', 0))
         if cost < 0 or cost != cost or cost == float('inf'):
             raise Blocked('invalid adapter cost ceiling')
+        reservation = job['id'] + ':' + str(job['attempts'])
         month = datetime.now(timezone.utc).strftime('%Y-%m')
         with self.connection() as db:
             db.execute('BEGIN IMMEDIATE')
             try:
-                existing = db.execute('SELECT reserved FROM spend WHERE job_id=?', (job['id'],)).fetchone()
+                existing = db.execute('SELECT reserved FROM spend WHERE job_id=?', (reservation,)).fetchone()
                 if not existing:
                     used = db.execute('SELECT COALESCE(SUM(reserved),0) FROM spend WHERE month=?', (month,)).fetchone()[0]
                     if used + cost > float(self.site['policy'].get('monthly_budget_usd', 0)):
                         raise Blocked('monthly adapter budget exceeded')
-                    db.execute('INSERT INTO spend VALUES(?,?,?)', (job['id'], month, cost))
+                    db.execute('INSERT INTO spend VALUES(?,?,?)', (reservation, month, cost))
                 db.execute('COMMIT')
             except Exception:
                 db.execute('ROLLBACK'); raise
@@ -358,6 +369,11 @@ class Runtime:
             for finding in result.get('issues', [])[:10]:
                 lines.append(f"  {finding.get('severity')}: {finding.get('observed')} — {finding.get('target')}")
         if not latest: lines.append('No collection evidence. This is not zero traffic or a passing audit.')
+        import rank_tracker
+        import backlink_history
+        ranks = rank_tracker.compare(self.root)
+        backlinks = backlink_history.latest(self.root)
+        lines += ['', '## Movement and backlinks', '', 'Rank observations: ' + json.dumps(ranks, ensure_ascii=False), '', 'Backlink observations: ' + json.dumps(backlinks, ensure_ascii=False)]
         lines += ['', '## Next action', '', 'Resolve failed evidence lanes and confirm indexability intent before proposing content changes.',
                   'Use the SEO domain references to interpret measured findings; no publication is implied by this report.',
                   '', 'Metrics are observations, not causal proof. Provider estimates and first-party measurements must remain separate.']
@@ -374,6 +390,14 @@ class Runtime:
                 result = {'site': self.site['domain'], 'provider': provider, 'collected_at': stamp(), 'status': result.get('status', 'ok'), 'data': result}
             else:
                 result = collect(self.root, self.site, provider, job['payload'].get('options'))
+            if provider == 'gsc_ranks' and not (result.get('data') or {}).get('error'):
+                import rank_tracker
+                data = result['data']
+                rows = [dict(row, state='ranked') for row in data.get('rows', []) if row.get('position', 0) > 0]
+                result['rank_snapshot'] = str(rank_tracker.ingest(self.root, rows, {'market': self.site['market'], 'language': self.site['language'], 'provider': 'google_gsc', 'measurement': 'gsc_average_position', 'collected_at': result['collected_at']}))
+            if provider == 'bing_links' and isinstance((result.get('data') or {}).get('rows'), list):
+                import backlink_history
+                result['backlink_snapshot'] = str(backlink_history.ingest(self.root, {**result['data'], 'collected_at': result['collected_at']}))
             path = self.state / 'evidence' / (job['id'] + '.json')
             atomic_write(path, json.dumps(result, indent=2).encode())
             result['artifact'] = str(path.relative_to(self.root))
@@ -389,11 +413,12 @@ class Runtime:
                 raise Blocked('delivery needs a completed report from this site')
             return self.adapter('deliver', 'deliver', job)
         raise Blocked('unsupported action')
-    def tick(self, limit=10):
-        self.due_schedules()
+    def tick(self, limit=10, only_id=None):
+        if only_id is None:
+            self.due_schedules()
         finished = []
         for _ in range(min(max(1, limit), 100)):
-            job, token = self.claim()
+            job, token = self.claim(only_id)
             if not job: break
             try:
                 result = self.execute(job)

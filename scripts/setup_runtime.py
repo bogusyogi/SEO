@@ -22,7 +22,7 @@ def main():
     if args.google: groups += ['google-api-python-client>=2.100,<3', 'google-auth>=2.20,<3', 'google-auth-oauthlib>=1,<2', 'google-auth-httplib2>=0.2,<1', 'google-analytics-data>=0.18,<1']
     if args.reports: groups += ['matplotlib>=3.8,<4', 'weasyprint>=61,<70', 'openpyxl>=3.1,<4']
     if args.browser: groups += ['playwright>=1.56,<2']
-    if args.mcp: groups += ['mcp>=1.12,<2']
+    if args.mcp: groups += ['mcp>=2,<3']
     if groups: subprocess.run([str(executable), '-m', 'pip', 'install', *groups], check=True)
     if args.browser: subprocess.run([str(executable), '-m', 'playwright', 'install', 'chromium'], check=True)
     print(json.dumps({'status': 'ok', 'python': str(executable), 'usage': f'{executable} <seo-package>/seo.py --root <site-project> doctor', 'framework_dependencies': []}))
