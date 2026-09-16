@@ -1,16 +1,24 @@
 name: SEO CI
-
 on:
   push:
   pull_request:
-
+permissions:
+  contents: read
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ['3.12']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-      - run: python -m unittest discover -s tests -p 'test_*.py'
-      - run: python scripts/seo_closure.py
+          python-version: ${{ matrix.python }}
+      - run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - run: python scripts/seo_closure.py --json
+      - run: python -m compileall -q scripts hooks extensions seo.py
+      - run: python seo.py --help
