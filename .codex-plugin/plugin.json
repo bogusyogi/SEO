@@ -1,0 +1,7 @@
+{
+  "name": "seo",
+  "version": "0.1.0",
+  "description": "Standalone SEO/AEO/GEO operating system extracted from Legion",
+  "skills": ["SKILL.md"],
+  "agents": ["agents/openai.yaml"]
+}

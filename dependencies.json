@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "kind": "seo-system-dependencies",
+  "resources": [
+    {"class": "HOST_CAPABILITY", "capability": "python-runtime"}
+  ]
+}
