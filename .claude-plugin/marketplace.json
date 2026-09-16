@@ -1,5 +1,6 @@
 {
   "name": "orthic-seo",
+  "description": "Independent first-party-first SEO operations from Orthic Labs",
   "owner": {"name": "Orthic Labs"},
   "plugins": [{"name": "seo", "source": "./", "description": "Independent SEO operations"}]
 }
