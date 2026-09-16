@@ -7,6 +7,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SCRIPTS = HERE.parent / 'scripts'
+sys.path.insert(0, str(SCRIPTS))
 
 
 def load(name: str):

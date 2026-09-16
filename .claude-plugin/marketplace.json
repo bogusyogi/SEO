@@ -1,0 +1,13 @@
+{
+  "name": "bogusyogi-seo",
+  "owner": {
+    "name": "Orthic Labs"
+  },
+  "plugins": [
+    {
+      "name": "seo",
+      "source": "./",
+      "description": "Standalone SEO system"
+    }
+  ]
+}

@@ -9,6 +9,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SEO_ROOT = HERE.parent
 SCRIPTS = SEO_ROOT / 'scripts'
+sys.path.insert(0, str(SCRIPTS))
 FIX = HERE / 'fixtures'
 
 

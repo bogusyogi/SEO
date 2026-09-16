@@ -10,6 +10,9 @@ import argparse
 import json
 import os
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from seo_state import state_dir, atomic_json, transaction_lock
 from typing import Any
 
 SEO_ROOT = Path(__file__).resolve().parent.parent
@@ -30,11 +33,23 @@ def availability(provider: dict[str, Any], host_tools: set[str] | None = None) -
     if kind == 'host_tool':
         hint = provider.get('tool_hint')
         return 'available' if hint and hint in (host_tools or set()) else 'unknown'
+    if 'GOOGLE_APPLICATION_CREDENTIALS' in envs:
+        # Check both supported credential mechanisms without authenticating or exposing values.
+        try:
+            from google_auth import load_config, _load_oauth_token
+            config = load_config()
+            path = config.get('service_account_path')
+            token = _load_oauth_token()
+            sa = bool(path and Path(path).expanduser().is_file())
+            oauth = bool(token and token.get('access_token') and config.get('oauth_client_path'))
+            return 'configured' if sa or oauth else 'unavailable'
+        except (ValueError, OSError):
+            return 'unavailable'
     vals = [bool(os.environ.get(name)) for name in envs]
     if kind == 'env_all':
-        return 'available' if vals and all(vals) else ('partial' if any(vals) else 'unavailable')
+        return 'configured' if vals and all(vals) else ('partial' if any(vals) else 'unavailable')
     if kind == 'env_any':
-        return 'available' if any(vals) else 'unavailable'
+        return 'configured' if any(vals) else 'unavailable'
     return 'unknown'
 
 
@@ -48,6 +63,8 @@ def discover(host_tools: set[str] | None = None) -> dict[str, Any]:
             'priority': provider.get('priority'),
             'capabilities': provider.get('capabilities') or [],
             'availability': availability(provider, host_tools),
+            'authenticated': False,
+            'note': 'configuration/discovery only; use provider_doctor --live for a scoped read',
         }
     return {'providers': out, 'selection_rules': reg.get('selection_rules') or []}
 
@@ -62,7 +79,7 @@ def choose(capability: str, *, host_tools: set[str] | None = None,
         state = availability(provider, host_tools)
         if state == 'manual' and not allow_manual:
             continue
-        if state not in {'available', 'manual'}:
+        if state not in {'available', 'configured', 'manual'}:
             continue
         if provider.get('paid') is True and not allow_paid:
             continue
@@ -90,6 +107,7 @@ def choose(capability: str, *, host_tools: set[str] | None = None,
         'provider': name,
         'class': provider.get('class'),
         'availability': state,
+        'runtime_verified': False,
         'paid': provider.get('paid'),
         'priority': priority,
         'alternatives': [x[2] for x in candidates[1:]],

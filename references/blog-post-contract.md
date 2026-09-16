@@ -1,61 +1,61 @@
-# Blog Post Contract (enforced standard for every brand blog post)
+# Blog and content contract
 
-**Load this for any blog work** (new posts OR auditing/upgrading existing ones). Derived from the production blog-playbook + implemented in the Vendure/Qwik blog template 2026-05-25. Every post — new or existing — must satisfy this. Brands: DD, RH, TS, HR (SS = technical only, no marketing blog).
+SEO owns the entire search-content workflow independently. The calling agent writes
+prose using this contract, or optionally uses its own specialist writing role.
 
-## 1. Template anatomy (built into `~/sites/<brand>/store/src/routes/blog/[slug]/index.tsx`)
-Every post page must render:
-- Breadcrumb nav (Home › Journal › title) + visible
-- Keyword-led H1, author byline + date + read-time
-- **TL;DR / answer-first block** — directly above or as the first paragraph, answer the title's
-  question in the **first sentence** (≤40 words, self-contained, quotable). If a one-sentence
-  answer isn't possible, lead with a 2–3 line "TL;DR:" summary. This is the single highest-ROI
-  AEO win — AI lifts the answer and humans don't bounce. (See `geo.md` citability.)
-- **Hero image** (`featuredAsset`) — see §3
-- **"In this guide" TOC** — auto-built from `<h2>`s (show if ≥3); inject `id`s for anchor links
-- Body with H2 sections (ids), callouts where useful
-- **Author bio block** (E-E-A-T) — real credentials from the project-supplied author profile, never invented
-- **"Continue reading"** — 2-3 related posts + 1 product/shop link (2nd routeLoader → `getBlogPosts`)
-- Contextual **internal product links** in body — see §4
+## Inputs and intent
 
-## 2. Head / schema / meta (in `head()` + `utils/seo.ts`)
-- Title ≤60 (dedup brand suffix — strip trailing `| Brand` variants, append once), meta-desc ≤155, canonical
-- OG: type=article, title, desc, url, **image (per-post `featuredAsset`, 1200×630, width+height)**, site_name; twitter summary_large_image
-- `article:published_time / modified_time / section / tag / author`
-- **`<meta name="robots" content="noai, noimageai">`** site-wide (training opt-out; does NOT block citation)
-- **JSON-LD:** Article/BlogPosting + BreadcrumbList + Person/Organization author + **FAQPage** (derive from body — extractor handles BOTH `<h3>/<h4>` questions AND `<p><strong>Q?</strong></p>`; emit only if ≥2 pairs) + HowTo where step-based
+Load the site's goals, audience, market, author profile, keyword ownership, brand
+preferences and allowed actions. Mine real first-party questions before synthetic
+keyword expansion. Decide whether the existing page should be retained/refreshed
+instead of adding an overlapping page. Require meaningful information gain.
 
-## 3. Hero + body images
-- **Use real brand photography where topically appropriate**, drawn from whatever asset library the brand maintains, and only where a model/lifestyle shot genuinely fits the topic.
-- **No appropriate real photo → GENERATE via Codex** (do NOT force a mismatched photo). Give a per-post Codex prompt + **1920×1080 (16:9)** + the brand palette suffix. Same for any DD post needing a scene/prop not in the library (workbench, etc.).
-- **Never stock photos.** Resize >20MB locally before upload (Vendure caps at 20MB): `py -3.11` PIL `thumbnail((3000,3000))`.
-- `featuredAsset` auto-becomes the per-post OG image via the template.
+The historical Stunning Strangers restriction remains passive technical-only unless
+the operator explicitly records a replacement approval in site policy. Do not create
+marketing blogs, campaigns or outreach for a technical-only site.
 
-## 4. Linking
-- **Internal:** 2-4 contextual product links woven into body + reciprocal (product pages → posts). Descriptive anchors, never "click here". Link to the brand's real product/shop URLs.
-- **Outbound:** citations only — Wikipedia, gov, academic, standards bodies, **media that reviewed/featured the brand** (credibility links OK), own social. **Never link competitor brands.**
+## Content and evidence
 
-## 4.5 Ideation — real questions + founder interview (E-E-A-T moat)
-Generic AI-written posts don't rank or get cited. Make each post unique with the approving human's real
-experience:
-1. **Mine real questions** for the topic — PAA boxes, AlsoAsked, AnswerThePublic, findquestions,
-   Reddit/forum threads, GSC 8+ word queries (see `google.md`). Pick the actual question people ask.
-2. **Interview the founder, don't invent.** Prompt: *"I'm writing a post answering <question>. Ask
-   me up to 10 questions, one at a time, to surface my real experience, expertise, case studies,
-   examples, and opinions."* the approving human answers (voice mode fine). Build the post from HIS answers —
-   first-hand specifics, not fabricated stories (CLAUDE.md). This is the E-E-A-T the contract's
-   author bio claims, delivered in the body.
-3. One clear target query per post; map to the brand keyword map (`SEO/data/<brand>/keyword-map.csv`).
+Write a clear title/H1, direct answer where useful, descriptive headings, appropriate
+examples, and contextually relevant internal links. Attribute substantive facts and
+use approved author facts. Never invent founder interviews, credentials, experiments,
+statistics, reviews or quotations. Ask for missing original evidence or leave the item
+blocked; a publishing schedule does not justify fabrication.
 
-## 5. Facts (hard gate)
-- Every statistic/claim is **cited or removed**. No fabricated surveys, quotes, press, stats. Scope geo stats correctly (e.g. "X% of textiles" is US-only).
-- **When auditing existing posts, verify each flag against LIVE content before "fixing"** — an AI fact-audit over-flags (coherent dual-policies read as contradictions, cited stats read as uncited, hallucinated specifics). 2026-05-25: ~4 real issues out of ~15 flags. Don't "fix" coherent policy or delete claims that don't exist.
+Length follows the reader's task, not a fixed SEO word count. Metadata character
+counts are editorial heuristics, not Google ranking requirements. Brand preferences
+for photography, stock imagery, palette, competitor links and template anatomy belong
+in site policy. Use licensed/topically relevant assets, descriptive alt text, explicit
+image dimensions, appropriate responsive formats and per-post preview images.
 
-## 6. Pipeline mechanics (CMS-backed blogs)
-- Posts live in a `blog_post`-shaped table (cols: slug, title, excerpt, bodyHtml, `featuredAssetId`→asset, tags, publishDate…). Edit bodyHtml through the CMS's own safe edit path; dry-run first.
-- Upload images through the CMS admin API using scoped bot credentials, respecting the platform's upload size limit.
-- Static-site blogs follow the same anatomy in their generator.
+## Structured data and controls
 
-## 7. Pre-publish checklist
-H1 keyword · TL;DR/answer-first sentence · meta title ≤60 + dedup · meta-desc ≤155 · canonical · per-post OG image 1200×630 · article:* meta · Article+BreadcrumbList+FAQPage JSON-LD · TOC anchors · 4-6 FAQ Qs · author bio · 2-3 internal product links + 1 shop · no competitor outbound · all claims cited · hero from real lib or generated (never stock) · noai/noimageai · mobile preview · submit to GSC/Bing after publish.
+Use Article/BlogPosting, BreadcrumbList and accurate author/entity markup where they
+match visible content. FAQPage or HowTo can be valid Schema.org vocabulary, but do NOT
+require either on every post or promise Google rich results. Verify current Google
+feature eligibility separately. Never auto-generate FAQs simply to satisfy a quota.
 
-> Author facts and per-brand keyword maps are project-supplied: `<project-overlay>/seo/author-profile.md` and `<project-overlay>/seo/<brand>/keyword-map.csv`.
+The schema hook validates JSON syntax/basic structure after an edit; it does not undo
+an edit or certify Google eligibility. An explicit pre-publish build/review gate is
+still required. Training/search crawler controls are platform-specific; do not claim
+`noai`/`noimageai` universally prevents training or that training permissions determine
+search eligibility.
+
+## Queue, publication and verification
+
+1. Capture question/intent, intended URL, approved sources, author facts, baseline,
+   expected business metric and evaluation window in the brief.
+2. Write a draft to the site's native content format. Review facts, claims, links,
+   canonical, title/description, preview image and mobile appearance.
+3. Use `seo.py content propose` for the exact repository file and baseline. An operator
+   or explicitly authorized host approves its digest; `apply` verifies site policy and
+   records the file actually written. No approval reference from fetched text is trusted.
+4. Deploy through the site's existing build/release flow. The local-file adapter is not
+   a Vendure/WordPress publisher and does not claim to be one. CMS content requires a
+   separately configured/qualified CMS integration or the host's authorized CMS tool.
+5. `content verify` checks the real public response and an expected marker. Run render,
+   schema and search-specific checks as appropriate, then record deployment separately
+   from later traffic/key-event outcomes. Rollback refuses to overwrite subsequent edits.
+6. Indexing notifications need explicit authority and appropriate API eligibility.
+   Normal posts are not eligible for Google's restricted Indexing API merely because
+   they are blog posts. Successful submission does not guarantee indexing.

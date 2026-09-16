@@ -72,7 +72,7 @@ Official sources:
 - Bing announcement: `https://blogs.bing.com/webmaster/February-2026/Introducing-AI-Performance-in-Bing-Webmaster-Tools-Public-Preview`
 - Bing Webmaster Guidelines: `https://www.bing.com/webmasters/help/webmaster-guidelines-30fba23a`
 
-Bing notes that legacy SOAP/POX APIs retire on 2026-08-31. New Legion integration work must target supported REST/API surfaces rather than adding legacy dependencies.
+Bing notes that legacy SOAP/POX APIs retire on 2026-08-31. New SEO integration work must target supported REST/API surfaces rather than adding legacy dependencies.
 
 ## Search eligibility vs model-training controls
 

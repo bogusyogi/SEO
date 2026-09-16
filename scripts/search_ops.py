@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from seo_state import state_dir, atomic_json, transaction_lock
 
 SCHEMA_VERSION = 2
-DEFAULT_STATE = '.legion/seo/interventions/search-ops.json'
+DEFAULT_STATE = '.seo/interventions/search-ops.json'
 OUTCOME_VERDICTS = {'improved', 'declined', 'mixed', 'inconclusive', 'not_measurable', 'immature'}
 
 
@@ -45,10 +48,7 @@ def load_state(path: Path) -> dict:
 
 
 def save_state(path: Path, state: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + '.tmp')
-    tmp.write_text(json.dumps(state, indent=2, sort_keys=True) + '\n', encoding='utf-8')
-    tmp.replace(path)
+    atomic_json(path, state)
 
 
 def find_intervention(state: dict, intervention_id: str) -> dict:
@@ -83,6 +83,12 @@ def cmd_start(args, state):
 
 def cmd_deploy(args, state):
     row = find_intervention(state, args.id)
+    for other in state['interventions']:
+        previous = other.get('deployment') or {}
+        if previous.get('idempotency_key') == args.idempotency_key:
+            if other['id'] != args.id or previous.get('identity') != args.identity:
+                raise SystemExit('idempotency key already belongs to a different deployment')
+            return row
     if row.get('status') not in {'proposed', 'deployed'}:
         raise SystemExit(f"cannot deploy intervention in state {row.get('status')}")
     row['status'] = 'deployed'
@@ -115,6 +121,14 @@ def cmd_outcome(args, state):
     row = find_intervention(state, args.id)
     if not row.get('deployment'):
         raise SystemExit('outcome cannot be recorded before deployment')
+    if args.verdict != 'immature':
+        if (row.get('verification') or {}).get('result') != 'pass':
+            raise SystemExit('terminal outcome requires verified deployment')
+        earliest = (row.get('evaluation') or {}).get('earliest_date')
+        if not earliest or date.fromisoformat(earliest) > datetime.now(timezone.utc).date():
+            raise SystemExit('evaluation window is not mature; record immature instead')
+        if not args.evidence:
+            raise SystemExit('outcome requires an evidence reference')
     outcome = {
         'recorded_at': utc_now(),
         'verdict': args.verdict,
@@ -209,12 +223,13 @@ def main() -> int:
     sub.add_parser('brief')
 
     args = ap.parse_args()
-    path = Path(args.state)
-    state = load_state(path)
-    fn = globals()[f"cmd_{args.command.replace('-', '_')}"]
-    result = fn(args, state)
-    if args.command != 'brief':
-        save_state(path, state)
+    path = state_dir() / 'interventions/search-ops.json' if args.state == DEFAULT_STATE else Path(args.state)
+    with transaction_lock(path):
+        state = load_state(path)
+        fn = globals()[f"cmd_{args.command.replace('-', '_')}"]
+        result = fn(args, state)
+        if args.command != 'brief':
+            save_state(path, state)
     print(json.dumps(result, indent=2))
     return 0
 

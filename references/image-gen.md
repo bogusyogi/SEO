@@ -81,7 +81,7 @@ For every generation request:
 
 If the user mentions a brand or has SEO presets configured:
 ```bash
-python3 legion-skill://seo/extensions/banana/scripts/presets.py list
+python3 ${SEO_ROOT}/extensions/banana/scripts/presets.py list
 ```
 Load matching preset and apply as defaults. Also check `references/seo-image-presets.md`
 for SEO-specific preset templates.
@@ -119,7 +119,7 @@ After every successful generation, guide the user on:
 
 Image generation costs money. Be transparent:
 - Show estimated cost before generating (especially for batch)
-- Log every generation: `python3 legion-skill://seo/extensions/banana/scripts/cost_tracker.py log --model MODEL --resolution RES --prompt "brief"`
+- Log every generation: `python3 ${SEO_ROOT}/extensions/banana/scripts/cost_tracker.py log --model MODEL --resolution RES --prompt "brief"`
 - Run `cost_tracker.py summary` if user asks about usage
 
 Approximate costs (gemini-3.1-flash):
@@ -145,7 +145,7 @@ Approximate costs (gemini-3.1-flash):
 | API key invalid | New key at https://aistudio.google.com/apikey |
 | Rate limited (429) | Wait 60s, retry. Free tier: ~10 RPM / ~500 RPD |
 | `IMAGE_SAFETY` | Rephrase prompt - see `references/prompt-engineering.md` Safety section |
-| MCP unavailable | Fall back: `python3 legion-skill://seo/extensions/banana/scripts/generate.py --prompt "..." --aspect-ratio "16:9"` |
+| MCP unavailable | Fall back: `python3 ${SEO_ROOT}/extensions/banana/scripts/generate.py --prompt "..." --aspect-ratio "16:9"` |
 | Extension not installed | Ask the caller to connect the `banana` MCP host capability |
 
 ## Cross-Skill Integration

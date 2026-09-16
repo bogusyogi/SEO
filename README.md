@@ -1,36 +1,86 @@
 # SEO
 
-Standalone SEO/AEO/GEO operating system extracted from Legion.
+Independent SEO/AEO/GEO skill, CLI and local MCP tools for owned-site operations.
+**Legion is not required.** Any agent/harness can use SEO directly; additional writing,
+coding or design roles are optional conveniences, not runtime dependencies.
 
-This repository is the canonical implementation for search visibility: technical SEO, query ownership, content/SXO, AEO, GEO/AI visibility, rank tracking, Search Console/GA4/Bing integrations, intervention state, and recurring operations.
+## What is implemented
 
-## Origin
+Technical crawling and on-page evidence; GSC Search Analytics/inspection; GA4 organic
+traffic, period-level users, key events and revenue; Bing reads and paginated per-URL
+backlinks; provider-scoped rank/backlink snapshot comparisons; site policy; scheduled
+read jobs with durable retries; evidence-based reports; reviewed repository-file changes
+with idempotency, deployed-text verification and conflict-safe rollback.
 
-Extracted from `Orthic-Labs/legion` SEO skill at Legion commit `a4eaaa223c284ab81641c4283903648a2a8c1f14`.
+Optional restored Banana image helpers and HTML/PDF reporting are included. Unlighthouse
+and SEOmator can be invoked as separately installed scanners. Paid providers and external
+agent frameworks are optional. No credential, live schedule, paid call, public post or
+site deployment is enabled by cloning/installing the package.
 
-## Integration model
+## Quick start
 
-- Standalone CLI/scripts are the source of truth.
-- ChatGPT/Codex/other agents should call the same implementation through plugin/tool adapters rather than duplicate SEO logic.
-- Legion should eventually retain only a thin adapter/client and cross-capability orchestration.
-- Secrets do not live in repository project state.
+```sh
+python /absolute/path/SEO/seo.py --help
+python /absolute/path/SEO/seo.py runtime --install-deps
+python /absolute/path/SEO/seo.py project --root /path/to/site setup --domain example.com --market IN --language en
+python /absolute/path/SEO/seo.py doctor --root /path/to/site
+```
 
-## Current layout
+The runtime setup is explicit and isolated. Credentials and property IDs are configured
+separately. See [operations](docs/OPERATIONS.md) for Google access, schedules, portfolio
+runs, content policy, examples and scope limitations.
 
-- `SKILL.md` — domain operating contract
-- `scripts/` — deterministic implementation and provider adapters
-- `references/` — SEO/AEO/GEO doctrine and provider guidance
-- `config/` — provider registry, contracts, control catalogue, qualification
-- `tests/` — deterministic/adversarial qualification
-- `evals/` — model-facing evaluations
-- `schema/` — structured output templates
-- `hooks/` — release/pre-commit checks
-- `agents/` — generated agent metadata
+## Plugin installation
 
-## Project state
+**Claude Code:** add this repository as a marketplace, then install `seo@bogusyogi-seo`.
+For a local checkout, the marketplace source is the absolute SEO directory. During
+repair-branch qualification, use a checkout of the repair branch rather than assuming
+that the default branch already contains the new package.
 
-Per-site non-secret durable state remains under `.legion/seo/` for compatibility during extraction. A future migration may rename that path only with explicit backwards compatibility.
+```text
+/plugin marketplace add /absolute/path/SEO
+/plugin install seo@bogusyogi-seo
+```
 
-## Status
+**Codex/ChatGPT-compatible plugin hosts:** the package manifest is
+`.codex-plugin/plugin.json`, with the skill under `skills/seo/` and a local MCP server
+in `.mcp.codex.json`. Use the host's supported local/custom plugin installation flow.
+This repository is not automatically published to an OpenAI directory by having a
+manifest. Native-host installation must be smoke-tested in the actual host.
 
-This extraction preserves the implementation; live provider credentials, runtime scheduling and real-property qualification remain environment-specific evidence and are not implied by repository presence alone.
+**Any other harness:** read `SKILL.md` and call the absolute `seo.py` entrypoint. No
+plugin is necessary. The same scripts are used by the stdio MCP server.
+
+Set `SEO_PROJECT_ROOTS` in the host environment to explicit absolute site roots,
+separated by the OS path separator (`;` on Windows, `:` on Unix). Without this allowlist,
+MCP tools cannot access a project. Five read-only tools expose access checks, collection,
+reports, rank changes and backlink changes. Publication remains an explicitly authorized
+CLI/host action, not an automatically trusted MCP write tool.
+
+Plugin launchers use `python3`; on a Windows host that only exposes `python` or `py -3`,
+override the MCP command in that host to the installed interpreter. The core CLI and
+tests work with Python 3.10+; no framework-specific runtime is needed.
+
+## State and compatibility
+
+New per-site state is `.seo/`. Historical `.legion/seo/` is read only as a backwards
+compatibility location, never as a dependency. `seo.py migrate-state --root SITE` copies
+and verifies it while preserving the original. Plugin updates never delete project
+state. Google config migrates by new writes into `~/.config/seo` with legacy read fallback.
+
+## Verify
+
+```sh
+python -m unittest discover -s tests -p 'test_*.py' -v
+python scripts/seo_closure.py --json
+python -m compileall -q scripts hooks extensions seo.py
+```
+
+Tests cover deterministic and mocked integration behavior. Live-provider access,
+actual CMS/deployment integrations, scheduler installation and search outcomes are
+separate qualification. This is not a claim that every site is already on autopilot.
+
+Origin: extracted from `Orthic-Labs/legion` at
+`a4eaaa223c284ab81641c4283903648a2a8c1f14`. The original source-use license is retained
+in [LICENSE](LICENSE); inherited third-party components keep their licenses. See
+[notices](docs/THIRD_PARTY_NOTICES.md) and [donor review](docs/DONOR-REVIEW.md).

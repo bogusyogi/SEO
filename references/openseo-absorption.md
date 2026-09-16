@@ -1,8 +1,8 @@
-# OpenSEO absorption — Legion-native contract
+# OpenSEO absorption — SEO-native contract
 
 Source family: `every-app/open-seo`. This reference captures useful OpenSEO behaviors without importing its SaaS shell, database, billing/team model, Cloudflare assumptions, or mandatory DataForSEO coupling.
 
-## What Legion absorbs
+## What SEO absorbs
 
 ### Project context
 
@@ -17,12 +17,12 @@ Search work needs durable project context shared across runs, not rediscovery on
 - provider/property mappings;
 - baselines and intervention history.
 
-Store non-secret project state under `<project>/.legion/seo/`; keep credentials/secrets outside the repository under user configuration or provider-native secure storage.
+Store non-secret project state under `<project>/.seo/`; keep credentials/secrets outside the repository under user configuration or provider-native secure storage.
 
 Recommended portable layout:
 
 ```text
-.legion/seo/
+.seo/
   site.yaml
   strategy/
   baselines/
@@ -44,7 +44,7 @@ Do not require every directory. Create/use only state justified by the workflow.
 
 ### Data-plane coverage
 
-OpenSEO's useful product lesson is the coherent data plane across keyword research, rank tracking, competitor intelligence, backlinks, site audit, Search Console/Analytics and AI visibility. Legion already owns methods for these areas; preserve them as one evidence graph rather than isolated reports.
+OpenSEO's useful product lesson is the coherent data plane across keyword research, rank tracking, competitor intelligence, backlinks, site audit, Search Console/Analytics and AI visibility. SEO already owns methods for these areas; preserve them as one evidence graph rather than isolated reports.
 
 For each observation preserve:
 
@@ -70,15 +70,15 @@ Paid-provider requests need visible cost semantics before expensive/bulk work. P
 
 ### MCP / agent access
 
-OpenSEO demonstrates the value of exposing the same project/search evidence to agents through a stable tool surface. Legion should expose normalized evidence/state through its host/runtime contracts rather than coupling SEO to one agent client or importing OpenSEO's MCP server wholesale.
+OpenSEO demonstrates the value of exposing the same project/search evidence to agents through a stable tool surface. SEO should expose normalized evidence/state through its host/runtime contracts rather than coupling SEO to one agent client or importing OpenSEO's MCP server wholesale.
 
 ### Adversarial fixtures
 
-OpenSEO's `badseo` corpus is a useful testing pattern. Legion deterministic SEO checks should have local fixtures for known failures and regressions: broken/cyclic redirects, bad canonicals, robots/noindex conflicts, duplicate/templated metadata, malformed schema, sitemap drift, render gaps, hreflang errors, orphan pages and crawler-purpose mistakes. A check is not complete merely because its prose exists; it should have a fixture/test when deterministic.
+OpenSEO's `badseo` corpus is a useful testing pattern. SEO deterministic SEO checks should have local fixtures for known failures and regressions: broken/cyclic redirects, bad canonicals, robots/noindex conflicts, duplicate/templated metadata, malformed schema, sitemap drift, render gaps, hreflang errors, orphan pages and crawler-purpose mistakes. A check is not complete merely because its prose exists; it should have a fixture/test when deterministic.
 
 ## Current OpenSEO additions reviewed in 2026-09
 
-OpenSEO v0.1.6 added shared project context across its assistant/MCP, Google Analytics organic traffic, and opt-in Lighthouse for agent audits. v0.1.7 added deeper SERP retrieval on demand and repaired Search Console Discover/Google News MCP reports. Legion should absorb the underlying behaviors:
+OpenSEO v0.1.6 added shared project context across its assistant/MCP, Google Analytics organic traffic, and opt-in Lighthouse for agent audits. v0.1.7 added deeper SERP retrieval on demand and repaired Search Console Discover/Google News MCP reports. SEO should absorb the underlying behaviors:
 
 - shared durable project context;
 - GA4 organic/business outcome evidence;
@@ -90,7 +90,7 @@ These are behaviors, not reasons to adopt OpenSEO's application architecture.
 
 ## Explicit non-absorptions
 
-Do not import as Legion core:
+Do not import as SEO core:
 
 - hosted SaaS/dashboard shell;
 - database/team/billing/account model;
@@ -99,4 +99,4 @@ Do not import as Legion core:
 - provider markup/margin model;
 - OpenSEO-specific assistant/MCP topology.
 
-Legion's SEO capability remains provider-agnostic and evidence-first.
+SEO's SEO capability remains provider-agnostic and evidence-first.

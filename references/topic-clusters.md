@@ -1,6 +1,6 @@
 # Topic Architecture / SERP-Overlap Clustering
 
-Absorbed conceptually from AgriciDaniel/claude-seo v2.3.1 `seo-cluster`, adapted to Legion's evidence and capability boundaries.
+Absorbed conceptually from AgriciDaniel/claude-seo v2.3.1 `seo-cluster`, adapted to SEO's evidence and capability boundaries.
 
 Use for keyword grouping, pillar/spoke planning, topic architecture and cannibalization prevention.
 
@@ -55,7 +55,7 @@ Every planned page should have a route from a meaningful hub and intentional con
 
 ## Execution boundary
 
-This reference produces search architecture and content briefs only. Writing owns prose creation; Designer owns visual/interaction changes; Legion coordinates multi-capability work. SEO does not invoke those skills itself.
+This reference produces search architecture and content briefs only. Writing owns prose creation; Designer owns visual/interaction changes; The calling host may compose its own roles, or perform those tasks directly; no additional skill is required.
 
 ## Measurement
 

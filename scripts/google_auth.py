@@ -21,9 +21,19 @@ import os
 import sys
 import time
 from typing import Optional
+from pathlib import Path
+from datetime import datetime
+import secrets
+import hashlib
+import base64
+import hmac
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from seo_state import atomic_json
 
-CONFIG_PATH = os.path.expanduser("~/.config/claude-seo/google-api.json")
-TOKEN_PATH = os.path.expanduser("~/.config/claude-seo/oauth-token.json")
+CONFIG_DIR = Path(os.environ.get('SEO_CONFIG_DIR', '~/.config/seo')).expanduser()
+LEGACY_CONFIG_DIR = Path('~/.config/claude-seo').expanduser()
+CONFIG_PATH = str(CONFIG_DIR / 'google-api.json')
+TOKEN_PATH = str(CONFIG_DIR / 'oauth-token.json')
 
 # Service-to-scope mapping
 SCOPES = {
@@ -44,8 +54,7 @@ SERVICE_AUTH = {
 }
 
 OAUTH_SCOPES = (
-    "https://www.googleapis.com/auth/indexing "
-    "https://www.googleapis.com/auth/webmasters "
+    "https://www.googleapis.com/auth/webmasters.readonly "
     "https://www.googleapis.com/auth/analytics.readonly"
 )
 OAUTH_REDIRECT_URI = "http://localhost:8085"
@@ -65,7 +74,7 @@ def load_config() -> dict:
     """
     Load configuration from config file with environment variable fallbacks.
 
-    Reads ~/.config/claude-seo/google-api.json first. Any missing fields
+    Reads ~/.config/seo/google-api.json first. Any missing fields
     are filled from environment variables.
 
     Returns:
@@ -80,9 +89,12 @@ def load_config() -> dict:
     }
 
     # Load from config file
-    if os.path.exists(CONFIG_PATH):
+    config_path = Path(CONFIG_PATH)
+    if not config_path.exists() and not os.environ.get("SEO_CONFIG_DIR"):
+        config_path = LEGACY_CONFIG_DIR / "google-api.json"
+    if config_path.exists():
         try:
-            with open(CONFIG_PATH, "r") as f:
+            with config_path.open("r", encoding="utf-8") as f:
                 file_config = json.load(f)
             config.update({k: v for k, v in file_config.items() if v})
         except (json.JSONDecodeError, IOError) as e:
@@ -161,10 +173,13 @@ def _load_oauth_client(creds_path: str) -> Optional[dict]:
 
 def _load_oauth_token() -> Optional[dict]:
     """Load saved OAuth token from TOKEN_PATH."""
-    if not os.path.exists(TOKEN_PATH):
+    token_path = Path(TOKEN_PATH)
+    if not token_path.exists() and not os.environ.get("SEO_CONFIG_DIR"):
+        token_path = LEGACY_CONFIG_DIR / "oauth-token.json"
+    if not token_path.exists():
         return None
     try:
-        with open(TOKEN_PATH, "r") as f:
+        with token_path.open("r", encoding="utf-8") as f:
             return json.load(f)
     except (json.JSONDecodeError, IOError):
         return None
@@ -172,9 +187,10 @@ def _load_oauth_token() -> Optional[dict]:
 
 def _save_oauth_token(token_data: dict):
     """Save OAuth token to TOKEN_PATH."""
-    os.makedirs(os.path.dirname(TOKEN_PATH), exist_ok=True)
-    with open(TOKEN_PATH, "w") as f:
-        json.dump(token_data, f, indent=2)
+    token_data = dict(token_data)
+    token_data.pop("client_secret", None)
+    atomic_json(Path(TOKEN_PATH), token_data)
+    os.chmod(TOKEN_PATH, 0o600)
 
 
 def _refresh_oauth_token(client: dict, token_data: dict) -> Optional[dict]:
@@ -194,7 +210,7 @@ def _refresh_oauth_token(client: dict, token_data: dict) -> Optional[dict]:
 
     try:
         req = urllib.request.Request(client.get("token_uri", "https://oauth2.googleapis.com/token"), data=params)
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             new_data = json.loads(resp.read())
         token_data["access_token"] = new_data["access_token"]
         token_data["expires_at"] = time.time() + new_data.get("expires_in", 3600)
@@ -233,7 +249,7 @@ def get_oauth_credentials(scopes: list):
                         print("OAuth token refresh failed. Re-run --auth.", file=sys.stderr)
                         return get_service_account_credentials(scopes)
 
-        if token_data and token_data.get("access_token"):
+        if token_data and token_data.get("access_token") and time.time() < token_data.get("expires_at", 0):
             try:
                 from google.oauth2.credentials import Credentials
                 # Read client_secret from client file, never from stored token
@@ -249,6 +265,7 @@ def get_oauth_credentials(scopes: list):
                     token_uri="https://oauth2.googleapis.com/token",
                     client_id=token_data.get("client_id"),
                     client_secret=client_secret,
+                    expiry=datetime.fromtimestamp(token_data["expires_at"], __import__("datetime").timezone.utc).replace(tzinfo=None),
                 )
             except ImportError:
                 print("Error: google-auth required. Install with: pip install google-auth", file=sys.stderr)
@@ -277,13 +294,16 @@ def run_oauth_flow(creds_path: str):
         print("Error: Could not load OAuth client credentials.", file=sys.stderr)
         sys.exit(1)
 
+    state = secrets.token_urlsafe(32)
+    verifier = secrets.token_urlsafe(64)
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     auth_url = (
         f"{client.get('auth_uri', 'https://accounts.google.com/o/oauth2/auth')}"
         f"?client_id={client['client_id']}"
         f"&redirect_uri={urllib.parse.quote(OAUTH_REDIRECT_URI)}"
         f"&response_type=code"
         f"&scope={urllib.parse.quote(OAUTH_SCOPES)}"
-        f"&access_type=offline&prompt=consent"
+        f"&access_type=offline&prompt=consent&state={state}&code_challenge={challenge}&code_challenge_method=S256"
     )
 
     auth_code = [None]
@@ -291,7 +311,7 @@ def run_oauth_flow(creds_path: str):
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             params = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-            if "code" in params:
+            if "code" in params and hmac.compare_digest(params.get("state", [""])[0], state):
                 auth_code[0] = params["code"][0]
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html")
@@ -325,10 +345,14 @@ def run_oauth_flow(creds_path: str):
         sys.exit(1)
 
     # Exchange code for tokens
-    _exchange_code(client, auth_code[0])
+    _exchange_code(client, auth_code[0], verifier)
+    config = load_config()
+    config["oauth_client_path"] = str(Path(creds_path).expanduser().resolve())
+    atomic_json(Path(CONFIG_PATH), config)
+    os.chmod(CONFIG_PATH, 0o600)
 
 
-def _exchange_code(client: dict, code: str):
+def _exchange_code(client: dict, code: str, verifier: str | None = None):
     """Exchange an authorization code for tokens."""
     import urllib.parse
     import urllib.request
@@ -339,13 +363,14 @@ def _exchange_code(client: dict, code: str):
         "client_secret": client["client_secret"],
         "redirect_uri": OAUTH_REDIRECT_URI,
         "grant_type": "authorization_code",
+        **({"code_verifier": verifier} if verifier else {}),
     }).encode()
 
     try:
         req = urllib.request.Request(
             client.get("token_uri", "https://oauth2.googleapis.com/token"), data=params
         )
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             token_data = json.loads(resp.read())
         token_data["expires_at"] = time.time() + token_data.get("expires_in", 3600)
         token_data["client_id"] = client["client_id"]
@@ -648,7 +673,7 @@ Google SEO API Setup Instructions
 
 6. CREATE CONFIG FILE
    mkdir -p ~/.config/claude-seo
-   Save to ~/.config/claude-seo/google-api.json:
+   Save to ~/.config/seo/google-api.json:
 
    {
      "service_account_path": "/path/to/service_account.json",

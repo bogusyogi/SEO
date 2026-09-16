@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Legion SEO project state, provider doctor, budget preflight and cache helpers.
+"""Standalone SEO project state, provider doctor, budget preflight and cache helpers.
 
 Secrets never belong in project state. JSON is written to ``site.yaml`` because JSON is a
 valid YAML 1.2 subset and keeps this utility dependency-free.
@@ -14,9 +14,12 @@ import sys
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from seo_state import state_dir, atomic_json, transaction_lock
 from typing import Any
 
-STATE_DIR = Path('.legion') / 'seo'
+STATE_DIR = Path('.seo')
 SITE_FILE = 'site.yaml'
 PROVIDER_ENV = {
     'google_api': ('GOOGLE_API_KEY',),
@@ -43,7 +46,7 @@ def root_path(root: str | Path) -> Path:
 
 
 def state_path(root: str | Path) -> Path:
-    return root_path(root) / STATE_DIR
+    return state_dir(root)
 
 
 def load_site(root: str | Path = '.') -> dict[str, Any]:
@@ -59,7 +62,7 @@ def load_site(root: str | Path = '.') -> dict[str, Any]:
 def save_site(data: dict[str, Any], root: str | Path = '.') -> Path:
     path = state_path(root) / SITE_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+    atomic_json(path, data)
     return path
 
 
@@ -189,7 +192,7 @@ def preflight(calls: list[PlannedCall], ceiling_usd: float | None = None) -> dic
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description='Legion SEO project state and provider doctor')
+    ap = argparse.ArgumentParser(description='Standalone SEO project state and provider doctor')
     ap.add_argument('--root', default='.')
     sub = ap.add_subparsers(dest='command', required=True)
 

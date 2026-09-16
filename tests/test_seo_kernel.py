@@ -12,6 +12,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SEO_ROOT = HERE.parent
 SCRIPTS = SEO_ROOT / 'scripts'
+sys.path.insert(0, str(SCRIPTS))
 FIX = HERE / 'fixtures'
 
 
@@ -44,7 +45,7 @@ class SeoKernelTests(unittest.TestCase):
             try:
                 site = self.project.setup_project(td, domain='example.com', market='IN', language='en', gsc_property='sc-domain:example.com')
                 self.assertEqual(site['market'], 'IN')
-                self.assertTrue((Path(td) / '.legion/seo/site.yaml').exists())
+                self.assertTrue((Path(td) / '.seo/site.yaml').exists())
                 result = self.project.doctor(td)
                 blob = json.dumps(result)
                 self.assertNotIn('super-secret-value', blob)
@@ -121,7 +122,7 @@ class SeoKernelTests(unittest.TestCase):
             script = SCRIPTS / 'search_ops.py'
             def run(*args):
                 return subprocess.run([sys.executable, str(script), '--state', str(state), *args], check=True, capture_output=True, text=True)
-            run('start','--id','i1','--target','https://e/x','--hypothesis','better snippet','--action','change title','--metric','ctr','--evaluate-after','2026-10-01')
+            run('start','--id','i1','--target','https://e/x','--hypothesis','better snippet','--action','change title','--metric','ctr','--evaluate-after','2020-01-01')
             run('deploy','--id','i1','--identity','commit:abc','--authorized-capability','repo-write','--idempotency-key','seo-i1','--effect-receipt','github:commit:abc','--rollback','git revert abc')
             run('verify','--id','i1','--result','pass','--evidence','recrawl:https://e/x')
             run('outcome','--id','i1','--verdict','inconclusive','--evidence','gsc:window')
