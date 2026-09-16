@@ -68,7 +68,7 @@ def execute(vendor, executable, packet, maximum=50):
             data=[]
             for p in Path(td).rglob('*.json'):
                 if p.stat().st_size <= 16*1024*1024:
-                    try: data.append(json.loads(p.read_text()))
+                    try: data.append(json.loads(p.read_text(encoding='utf-8')))
                     except (ValueError,UnicodeError): pass
         result=normalize(data,vendor,version)
         result['exit_code']=done.returncode
@@ -82,7 +82,7 @@ def main():
     ap.add_argument('--executable'); ap.add_argument('--max-pages',type=int,default=50)
     args=ap.parse_args()
     try:
-        result=normalize(json.loads(Path(args.report).read_text()),args.vendor,args.version) if args.report else execute(args.vendor,args.executable,json.load(sys.stdin),args.max_pages)
+        result=normalize(json.loads(Path(args.report).read_text(encoding='utf-8')),args.vendor,args.version) if args.report else execute(args.vendor,args.executable,json.load(sys.stdin),args.max_pages)
     except Exception as exc: result={'status':'failed','error':f'external audit unavailable or invalid ({type(exc).__name__})'}
     print(json.dumps(result,indent=2))
     return 1 if result.get('error') else 0

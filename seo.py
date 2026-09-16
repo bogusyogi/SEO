@@ -13,6 +13,8 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 from seo_runtime import Runtime, Blocked, init_site, load_site, migrate_state
 
 VERSION = '0.2.0'
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
 
 def payload(path):
     value = json.loads(Path(path).read_text(encoding='utf-8'))

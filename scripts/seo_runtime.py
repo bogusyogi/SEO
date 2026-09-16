@@ -76,7 +76,7 @@ def init_site(root, domain, market, language, **properties):
     confined(root, '.seo')
     existing_path = root / '.seo' / 'site.yaml'
     if existing_path.exists():
-        existing = json.loads(existing_path.read_text())
+        existing = json.loads(existing_path.read_text(encoding='utf-8'))
         if existing.get('domain') != domain:
             raise Blocked('Refusing to repurpose another site project')
     site = setup_project(root, domain=domain, market=market, language=language, **properties)
@@ -292,7 +292,7 @@ class Runtime:
             raise Blocked('built-in rollback handles local patches; remote rollback needs the configured CMS/deploy adapter')
         journal = confined(self.root, '.seo/changes/' + original['id'] + '.json')
         if not journal.exists(): raise Blocked('no observed change journal')
-        record = json.loads(journal.read_text())
+        record = json.loads(journal.read_text(encoding='utf-8'))
         path = confined(self.root, record['path'])
         if not path.exists() or digest(path.read_bytes()) != record['after_sha256']:
             raise Blocked('rollback would overwrite a subsequent edit')
@@ -373,13 +373,17 @@ class Runtime:
         import backlink_history
         ranks = rank_tracker.compare(self.root)
         backlinks = backlink_history.latest(self.root)
-        lines += ['', '## Movement and backlinks', '', 'Rank observations: ' + json.dumps(ranks, ensure_ascii=False), '', 'Backlink observations: ' + json.dumps(backlinks, ensure_ascii=False)]
-        lines += ['', '## Next action', '', 'Resolve failed evidence lanes and confirm indexability intent before proposing content changes.',
-                  'Use the SEO domain references to interpret measured findings; no publication is implied by this report.',
-                  '', 'Metrics are observations, not causal proof. Provider estimates and first-party measurements must remain separate.']
+        lines += ['', '## Movement and backlinks', '', 'Rank comparison: ' + ranks.get('status', 'unknown'), 'Missing rank observations: ' + str(ranks.get('missing_observations', 0)), 'Backlink comparison: ' + backlinks.get('status', 'unknown'), 'New backlink observations: ' + str(len(backlinks.get('new_observations', []))), 'Lost candidates (unconfirmed): ' + str(len(backlinks.get('lost_candidates', [])))]
+        from seo_prioritize import prioritize
+        selection = prioritize(latest)
+        primary = selection['primary_action']
+        lines += ['', '## Next action', '', primary['action'] + ': ' + primary['reason']]
+        if primary.get('target'): lines.append('Target: ' + primary['target'])
+        if primary.get('evidence_job'): lines.append('Evidence job: ' + primary['evidence_job'])
+        lines += ['', 'This recommendation does not authorize a mutation. Metrics are observations, not causal proof.']
         path = self.state / 'reports' / (job['id'] + '.md')
         atomic_write(path, ('\n'.join(lines) + '\n').encode())
-        return {'status': 'ok', 'artifact': str(path.relative_to(self.root)), 'providers': latest}
+        return {'status': 'ok', 'artifact': str(path.relative_to(self.root)), 'providers': {name: {'job_id': row['job_id'], 'state': row['job_state'], 'updated': row['updated']} for name, row in latest.items()}, 'selection': selection, 'rank_comparison': ranks, 'backlink_comparison': backlinks}
     def execute(self, job):
         self.authorize(job)
         kind = job['kind']
@@ -394,7 +398,7 @@ class Runtime:
                 import rank_tracker
                 data = result['data']
                 rows = [dict(row, state='ranked') for row in data.get('rows', []) if row.get('position', 0) > 0]
-                result['rank_snapshot'] = str(rank_tracker.ingest(self.root, rows, {'market': self.site['market'], 'language': self.site['language'], 'provider': 'google_gsc', 'measurement': 'gsc_average_position', 'collected_at': result['collected_at']}))
+                result['rank_snapshot'] = str(rank_tracker.ingest(self.root, rows, {'market': 'all-countries', 'language': 'not-reported', 'device': 'all', 'provider': 'google_gsc', 'measurement': 'gsc_average_position', 'collected_at': result['collected_at']}))
             if provider == 'bing_links' and isinstance((result.get('data') or {}).get('rows'), list):
                 import backlink_history
                 result['backlink_snapshot'] = str(backlink_history.ingest(self.root, {**result['data'], 'collected_at': result['collected_at']}))

@@ -13,7 +13,7 @@ ROOT=Path(__file__).resolve().parent.parent
 def validate(root=ROOT):
     errors=[]
     for name in ('.codex-plugin/plugin.json','.claude-plugin/plugin.json'):
-        data=json.loads((root/name).read_text())
+        data=json.loads((root/name).read_text(encoding='utf-8'))
         if data.get('name')!='seo' or data.get('version')!='0.2.0': errors.append('manifest identity mismatch: '+name)
         for field in ('skills','hooks','mcpServers'):
             value=data.get(field)
@@ -30,9 +30,9 @@ def validate(root=ROOT):
             if isinstance(node,ast.Import): modules=[a.name for a in node.names]
             if isinstance(node,ast.ImportFrom): modules=[node.module or '']
             if any(m.lower().startswith('legion') for m in modules): errors.append('forbidden framework import: '+str(p))
-    if 'legion-skill://' in (root/'SKILL.md').read_text(): errors.append('canonical skill requires Legion resolver')
+    if 'legion-skill://' in (root/'SKILL.md').read_text(encoding='utf-8'): errors.append('canonical skill requires Legion resolver')
     for filename in ('.mcp.json','config/mcp-codex.json'):
-        data=json.loads((root/filename).read_text())
+        data=json.loads((root/filename).read_text(encoding='utf-8'))
         servers=data.get('mcpServers',data)
         if servers['seo']['command']!='python': errors.append('unexpected MCP launcher')
     return errors

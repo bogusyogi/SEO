@@ -108,7 +108,7 @@ class SeoGovernanceTests(unittest.TestCase):
         self.assertEqual(parsed['canonical'], '/good/')
 
     def test_control_catalog_has_exact_source_ranges(self):
-        catalog = json.loads((SEO_ROOT / 'config/control-catalog.json').read_text())
+        catalog = json.loads((SEO_ROOT / 'config/control-catalog.json').read_text(encoding='utf-8'))
         self.assertEqual([p['id'] for p in catalog['phases']], list(range(1, 31)))
         self.assertEqual(catalog['phases'][0]['source_lines'], [74, 134])
         self.assertEqual(catalog['phases'][-1]['source_lines'], [1591, 1681])

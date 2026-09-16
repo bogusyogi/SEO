@@ -29,7 +29,7 @@ class ProviderReplayTests(unittest.TestCase):
         cls.ai = load('ai_visibility_import')
 
     def test_gsc_aggregate_is_not_dimension_sum(self):
-        fixture = json.loads((FIX / 'gsc_replay.json').read_text())
+        fixture = json.loads((FIX / 'gsc_replay.json').read_text(encoding='utf-8'))
         out = self.gsc.normalize_result(
             site_url='sc-domain:example.com', start_date='2026-08-01', end_date='2026-08-28',
             dimensions=['query', 'page'], search_type='web',
@@ -43,7 +43,7 @@ class ProviderReplayTests(unittest.TestCase):
         self.assertIn('dimensionless', out['aggregate']['provenance'])
 
     def test_gsc_replay_is_deterministic(self):
-        fixture = json.loads((FIX / 'gsc_replay.json').read_text())
+        fixture = json.loads((FIX / 'gsc_replay.json').read_text(encoding='utf-8'))
         kwargs = dict(
             site_url='sc-domain:example.com', start_date='2026-08-01', end_date='2026-08-28',
             dimensions=['query', 'page'], search_type='web', aggregate_row=fixture['aggregate_row'],

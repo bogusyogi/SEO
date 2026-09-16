@@ -95,7 +95,7 @@ class ContractRepairTests(unittest.TestCase):
     def test_schema_hook_reads_stdin_event(self):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td)/'page.html'
-            p.write_text('<script type="application/ld+json">{broken}</script>')
+            p.write_text('<script type="application/ld+json">{broken}</script>', encoding='utf-8')
             result = subprocess.run([sys.executable,str(ROOT/'hooks/validate-schema.py')], input=json.dumps({'tool_input':{'file_path':str(p)}}), text=True,capture_output=True)
         self.assertEqual(result.returncode, 2)
         self.assertIn('invalid JSON', result.stdout)
@@ -168,15 +168,15 @@ class RuntimeTests(unittest.TestCase):
     def tearDown(self): self.temp.cleanup()
     def policy(self, **values):
         p = self.root/'.seo/site.yaml'
-        site = json.loads(p.read_text())
+        site = json.loads(p.read_text(encoding='utf-8'))
         site['policy'].update(values)
-        p.write_text(json.dumps(site))
+        p.write_text(json.dumps(site), encoding='utf-8')
     def allow_writes(self):
         self.policy(allowed_actions=['collect','report','draft','patch','rollback','publish'],auto_actions=['collect','report','draft','patch','rollback','publish'],allowed_paths=['content'])
     def patch_job(self):
         self.allow_writes()
         (self.root/'content').mkdir(exist_ok=True)
-        (self.root/'content/page.md').write_text('before')
+        (self.root/'content/page.md').write_text('before', encoding='utf-8')
         return self.runtime.enqueue('patch',{'path':'content/page.md','expected_sha256':digest(b'before'),'content':'after','category':'technical'})
     def test_patch_receipt_idempotence_and_rollback(self):
         job = self.patch_job()
@@ -184,19 +184,19 @@ class RuntimeTests(unittest.TestCase):
         row = self.runtime.row(job['id'])
         self.assertEqual(row['state'],'succeeded')
         self.assertFalse(row['result']['deployed'])
-        self.assertEqual((self.root/'content/page.md').read_text(),'after')
+        self.assertEqual((self.root/'content/page.md').read_text(encoding='utf-8'),'after')
         self.assertEqual(self.runtime.tick()['jobs'],[])
         self.assertEqual(self.runtime.enqueue('patch',job['payload'])['id'],job['id'])
         undo = self.runtime.enqueue('rollback',{'job_id':job['id']})
         self.runtime.tick()
         self.assertEqual(self.runtime.row(undo['id'])['state'],'succeeded')
-        self.assertEqual((self.root/'content/page.md').read_text(),'before')
+        self.assertEqual((self.root/'content/page.md').read_text(encoding='utf-8'),'before')
     def test_rollback_does_not_overwrite_new_change(self):
         job = self.patch_job(); self.runtime.tick()
-        (self.root/'content/page.md').write_text('another writer')
+        (self.root/'content/page.md').write_text('another writer', encoding='utf-8')
         undo = self.runtime.enqueue('rollback',{'job_id':job['id']}); self.runtime.tick()
         self.assertEqual(self.runtime.row(undo['id'])['state'],'blocked')
-        self.assertEqual((self.root/'content/page.md').read_text(),'another writer')
+        self.assertEqual((self.root/'content/page.md').read_text(encoding='utf-8'),'another writer')
     def test_read_command_does_not_drain_mutations(self):
         pending = self.patch_job()
         report = self.runtime.enqueue('report',{})
@@ -208,14 +208,14 @@ class RuntimeTests(unittest.TestCase):
         self.policy(max_change_bytes=200000)
         self.runtime.tick()
         self.assertEqual(self.runtime.row(job['id'])['state'],'blocked')
-        self.assertEqual((self.root/'content/page.md').read_text(),'before')
+        self.assertEqual((self.root/'content/page.md').read_text(encoding='utf-8'),'before')
     def test_technical_only_blocks_drafts(self):
         self.policy(technical_only=True)
         job = self.runtime.enqueue('draft',{'title':'Title','query':'q','sources':[{'id':'a','url':'https://example.com'}],'body':'draft'})
         self.runtime.tick()
         self.assertEqual(self.runtime.row(job['id'])['state'],'blocked')
     def test_cross_site_property_is_rejected(self):
-        p = self.root/'.seo/site.yaml'; site = json.loads(p.read_text()); site['properties']['gsc']='sc-domain:other.example'; p.write_text(json.dumps(site))
+        p = self.root/'.seo/site.yaml'; site = json.loads(p.read_text(encoding='utf-8')); site['properties']['gsc']='sc-domain:other.example'; p.write_text(json.dumps(site), encoding='utf-8')
         with self.assertRaises(Blocked): Runtime(self.root)
     def test_mutation_crash_is_uncertain_not_retried(self):
         job = self.patch_job(); claimed,_ = self.runtime.claim()
@@ -247,10 +247,10 @@ class RuntimeTests(unittest.TestCase):
         self.runtime.approve(job['id']); self.runtime.tick(only_id=job['id'])
         self.assertEqual(self.runtime.row(job['id'])['state'],'succeeded')
     def test_budget_is_reserved_again_on_read_retry(self):
-        p=self.root/'.seo/site.yaml'; site=json.loads(p.read_text())
+        p=self.root/'.seo/site.yaml'; site=json.loads(p.read_text(encoding='utf-8'))
         site['policy']['monthly_budget_usd']=.5
         site['adapters']={'data':{'effect':'read','argv':[sys.executable,'-c','import json; print(json.dumps({"error":"transient"}))'],'max_cost_usd':.5}}
-        p.write_text(json.dumps(site))
+        p.write_text(json.dumps(site), encoding='utf-8')
         job=self.runtime.enqueue('collect',{'provider':'adapter:data'})
         self.runtime.tick()
         with self.runtime.connection() as db: db.execute('UPDATE jobs SET due=0 WHERE id=?',(job['id'],))
@@ -270,7 +270,7 @@ class RuntimeTests(unittest.TestCase):
     def test_migration_preserves_original_bytes(self):
         with tempfile.TemporaryDirectory() as td:
             old=Path(td)/'.legion/seo'; old.mkdir(parents=True)
-            (old/'site.yaml').write_text('{"domain":"example.com"}')
+            (old/'site.yaml').write_text('{"domain":"example.com"}', encoding='utf-8')
             (old/'snapshot.json').write_bytes(b'important history')
             result=migrate_state(td)
             self.assertTrue(result['source_preserved'])

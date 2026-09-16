@@ -42,4 +42,4 @@ def latest(root):
     paths = sorted((Path(root).resolve() / '.seo' / 'backlinks').glob('*.json'))
     if len(paths) < 2:
         return {'status': 'not_testable', 'reason': 'two snapshots required'}
-    return compare(*[json.loads(p.read_text()) for p in paths[-2:]])
+    return compare(*[json.loads(p.read_text(encoding='utf-8')) for p in paths[-2:]])

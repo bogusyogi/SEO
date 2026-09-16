@@ -28,7 +28,7 @@ class QualityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, patch.object(google_auth,'TOKEN_PATH',str(Path(td)/'credentials/token.json')):
             google_auth._save_oauth_token({'access_token':'fixture'})
             p=Path(google_auth.TOKEN_PATH)
-            self.assertEqual(json.loads(p.read_text())['access_token'],'fixture')
+            self.assertEqual(json.loads(p.read_text(encoding='utf-8'))['access_token'],'fixture')
             if os.name!='nt': self.assertEqual(p.stat().st_mode&0o777,0o600)
     def test_performance_nested_failure_is_not_success(self):
         result=seo_collect.envelope({'domain':'example.com'},'pagespeed',{'psi':{'mobile':{'error':'timeout'},'desktop':{'lighthouse_scores':{'performance':90}}}})

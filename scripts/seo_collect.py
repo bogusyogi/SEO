@@ -28,7 +28,7 @@ def run_json(argv, *, root, timeout=180, payload=None):
     with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
         try:
             done = subprocess.run(argv, input=json.dumps(payload).encode() if payload is not None else None,
-                stdout=output, stderr=errors, cwd=root, timeout=timeout, shell=False)
+                stdout=output, stderr=errors, cwd=root, timeout=timeout, shell=False, env={**os.environ, 'PYTHONIOENCODING':'utf-8', 'PYTHONUTF8':'1'})
         except subprocess.TimeoutExpired:
             return {'status': 'failed', 'error': 'adapter timeout; reconcile before retrying any mutation', 'timed_out': True}
         except OSError as exc:

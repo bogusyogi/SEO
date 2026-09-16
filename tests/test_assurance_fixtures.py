@@ -11,8 +11,8 @@ FIX = HERE / 'fixtures'
 
 class AssuranceFixtureTests(unittest.TestCase):
     def test_every_critical_gate_has_adversarial_fixture(self):
-        catalog = json.loads((SEO_ROOT / 'config/control-catalog.json').read_text())
-        matrix = json.loads((FIX / 'p0_cases.json').read_text())
+        catalog = json.loads((SEO_ROOT / 'config/control-catalog.json').read_text(encoding='utf-8'))
+        matrix = json.loads((FIX / 'p0_cases.json').read_text(encoding='utf-8'))
         gates = set(catalog['critical_gates'])
         represented = {x['critical_gate'] for x in matrix['cases']}
         self.assertEqual(represented, gates)
@@ -24,8 +24,8 @@ class AssuranceFixtureTests(unittest.TestCase):
             self.assertTrue((FIX / control['fixture']).exists())
 
     def test_every_declared_workflow_pack_has_qualification_case(self):
-        catalog = json.loads((SEO_ROOT / 'config/control-catalog.json').read_text())
-        matrix = json.loads((FIX / 'workflow_pack_cases.json').read_text())
+        catalog = json.loads((SEO_ROOT / 'config/control-catalog.json').read_text(encoding='utf-8'))
+        matrix = json.loads((FIX / 'workflow_pack_cases.json').read_text(encoding='utf-8'))
         declared = set(catalog['workflow_packs'])
         represented = {x['pack'] for x in matrix['cases']}
         self.assertEqual(represented, declared)
@@ -38,7 +38,7 @@ class AssuranceFixtureTests(unittest.TestCase):
                 self.assertTrue(case['evidence'])
 
     def test_redirect_loop_fixture_is_actually_cyclic(self):
-        data = json.loads((FIX / 'redirect_loop.json').read_text())['redirects']
+        data = json.loads((FIX / 'redirect_loop.json').read_text(encoding='utf-8'))['redirects']
         start = next(iter(data))
         seen = set()
         cur = start
@@ -50,13 +50,13 @@ class AssuranceFixtureTests(unittest.TestCase):
         self.assertIn(cur, seen)
 
     def test_measurement_fixture_demonstrates_integrity_failure(self):
-        data = json.loads((FIX / 'measurement_broken.json').read_text())
+        data = json.loads((FIX / 'measurement_broken.json').read_text(encoding='utf-8'))
         event = data['events'][0]
         self.assertGreater(event['count'], 1)
         self.assertEqual(data['measurement_id'], data['staging_measurement_id'])
 
     def test_authority_fixture_has_no_capability_or_confirmation(self):
-        data = json.loads((FIX / 'authority_violation.json').read_text())
+        data = json.loads((FIX / 'authority_violation.json').read_text(encoding='utf-8'))
         self.assertTrue(data['binding'])
         self.assertIsNone(data['authorized_capability'])
         self.assertFalse(data['confirmation'])

@@ -68,14 +68,14 @@ class SeoKernelTests(unittest.TestCase):
         self.assertEqual(result['calls'][0]['billable_count'], 8)
 
     def test_query_ownership_and_switching(self):
-        payload = json.loads((FIX / 'gsc_rows.json').read_text())
+        payload = json.loads((FIX / 'gsc_rows.json').read_text(encoding='utf-8'))
         out = {x.query: x for x in self.ownership.classify(payload['rows'])}
         self.assertEqual(out['how to use viewright'].classification, 'benign overlap')
         self.assertEqual(out['viewright pricing'].classification, 'stable owner')
         self.assertEqual(out['viewright alternative'].classification, 'ownership switching')
 
     def test_question_inventory_is_gsc_first(self):
-        payload = json.loads((FIX / 'gsc_rows.json').read_text())
+        payload = json.loads((FIX / 'gsc_rows.json').read_text(encoding='utf-8'))
         result = self.questions.build(payload)
         qs = {x['question'] for x in result}
         self.assertIn('how to use viewright?', qs)
@@ -108,8 +108,8 @@ class SeoKernelTests(unittest.TestCase):
         self.assertEqual(out['templated_pages'], 5)
 
     def test_badseo_noindex_and_clean_control(self):
-        bad, _ = self.audit.parse((FIX / 'badseo/noindex.html').read_text())
-        good, _ = self.audit.parse((FIX / 'badseo/clean.html').read_text())
+        bad, _ = self.audit.parse((FIX / 'badseo/noindex.html').read_text(encoding='utf-8'))
+        good, _ = self.audit.parse((FIX / 'badseo/clean.html').read_text(encoding='utf-8'))
         self.assertTrue(bad['noindex'])
         self.assertFalse(good['noindex'])
         self.assertTrue(good['canonical'])
@@ -125,7 +125,7 @@ class SeoKernelTests(unittest.TestCase):
             run('deploy','--id','i1','--identity','commit:abc','--authorized-capability','repo-write','--idempotency-key','seo-i1','--effect-receipt','github:commit:abc','--rollback','git revert abc')
             run('verify','--id','i1','--result','pass','--evidence','recrawl:https://e/x')
             run('outcome','--id','i1','--verdict','inconclusive','--evidence','gsc:window')
-            data = json.loads(state.read_text())
+            data = json.loads(state.read_text(encoding='utf-8'))
             row = data['interventions'][0]
             self.assertEqual(row['status'], 'outcome_recorded')
             self.assertEqual(row['verification']['result'], 'pass')
