@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "domain": "example.com",
+  "base_url": "https://example.com/",
+  "allowed_hosts": ["example.com"],
+  "market": "IN",
+  "language": "en",
+  "properties": {"gsc": "sc-domain:example.com", "ga4": "123456789", "bing": "https://example.com/"},
+  "policy": {
+    "allowed_actions": ["collect", "report", "draft"],
+    "auto_actions": ["collect", "report", "draft"],
+    "allowed_paths": [],
+    "monthly_budget_usd": 0,
+    "max_change_bytes": 100000,
+    "max_pages": 300,
+    "technical_only": false
+  },
+  "adapters": {}
+}

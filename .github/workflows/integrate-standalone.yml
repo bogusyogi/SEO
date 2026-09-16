@@ -2,7 +2,7 @@ name: Integrate standalone repair
 on:
   push:
     branches: ['fix/standalone-seo-20260916']
-    paths: ['_repair/integrate.py', '_repair/finalize.py', '.github/workflows/integrate-standalone.yml']
+    paths: ['_repair/**', '.github/workflows/integrate-standalone.yml']
 permissions:
   contents: write
 jobs:
@@ -17,10 +17,10 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install google-api-python-client google-auth google-auth-httplib2 google-analytics-data 'mcp>=2,<3'
-      - run: python _repair/integrate.py && python _repair/finalize.py
+      - run: python _repair/integrate.py && python _repair/finalize.py && python _repair/quality.py
       - run: python -m compileall -q scripts hooks seo.py
       - run: python -m unittest discover -s tests -p 'test_*.py' -v
-      - run: python scripts/seo_closure.py --json
+      - run: python scripts/seo_closure.py --json && python scripts/qualify_package.py
       - name: Commit qualified materialized source
         env:
           REPAIR_BRANCH: ${{ github.ref_name }}
@@ -28,7 +28,7 @@ jobs:
           test "$REPAIR_BRANCH" = 'fix/standalone-seo-20260916'
           git config user.name 'SEO repair bot'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git rm _repair/integrate.py _repair/finalize.py .github/workflows/integrate-standalone.yml
-          git add scripts tests references extensions pdf seo.py
-          git commit -m 'fix: qualify scoped collection and standalone runtime integration'
+          git rm _repair/integrate.py _repair/finalize.py _repair/quality.py .github/workflows/integrate-standalone.yml
+          git add scripts tests references extensions pdf seo.py agents
+          git commit -m 'fix: qualify standalone runtime, structured MCP and analytics repairs'
           git push origin HEAD:"$REPAIR_BRANCH"
