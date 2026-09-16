@@ -24,27 +24,26 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Optional SDKs for integration tests
         run: python -m pip install 'google-api-python-client>=2.100,<3' 'google-auth>=2.20,<3' 'google-auth-httplib2>=0.2,<1' 'google-analytics-data>=0.18,<1' 'mcp>=2,<3'
-      - name: Materialize final source edit when present
-        shell: python
-        run: |
-          from pathlib import Path
-          import subprocess, sys
-          path = Path('_repair/portable.py')
-          if path.exists(): subprocess.run([sys.executable, str(path)], check=True)
       - run: python -m compileall -q scripts hooks seo.py
       - run: python -m unittest discover -s tests -p 'test_*.py' -v
       - run: python scripts/seo_closure.py --json
       - run: python scripts/qualify_package.py
-      - name: Minimal isolated environment without optional SDKs
+      - name: Archived installation in a minimal environment without SDKs or Legion
         shell: python
         run: |
-          import os, subprocess, tempfile, venv
+          import os, subprocess, tempfile, venv, zipfile
           from pathlib import Path
           with tempfile.TemporaryDirectory() as td:
               root = Path(td)
+              archive = root / 'seo.zip'
+              subprocess.run(['git', 'archive', '--format=zip', '-o', str(archive), 'HEAD'], check=True)
+              package = root / 'installed-seo'
+              with zipfile.ZipFile(archive) as z:
+                  z.extractall(package)
+              assert not (package / '_repair').exists(), 'release contains temporary source generators'
               venv.EnvBuilder(with_pip=False).create(root / 'venv')
               executable = root / 'venv' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
-              subprocess.run([str(executable), str(Path('scripts/qualify_package.py').resolve())], check=True, cwd=root)
+              subprocess.run([str(executable), str(package / 'scripts/qualify_package.py')], check=True, cwd=root)
   native-plugin:
     name: Native Claude plugin validation
     runs-on: ubuntu-latest
