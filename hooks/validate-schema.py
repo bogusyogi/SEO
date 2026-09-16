@@ -1,162 +1,108 @@
 #!/usr/bin/env python3
-"""Post-edit schema validation hook for Claude Code.
+"""JSON-LD validation for files or hook event JSON on stdin.
 
-Validates JSON-LD schema after file edits. Returns exit code 2 to block
-if critical validation errors found.
-
-Hook configuration in host settings:
-{
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 legion-skill://seo/hooks/validate-schema.py \"$FILE_PATH\"",
-            "exitCodes": { "2": "block" }
-          }
-        ]
-      }
-    ]
-  }
-}
-
-Note: matcher filters by tool name only (Edit, Write). The script itself
-checks if the file contains schema markup before validating.
+PostToolUse supplies feedback AFTER an edit, not a transactional edit veto.
+Use the same validator before publishing. Valid Schema.org vocabulary and Google
+rich-result eligibility are distinct: HowTo/FAQPage are not syntax errors.
 """
-
+from __future__ import annotations
+import argparse
 import json
 import re
 import sys
-import os
-from typing import List
+from html.parser import HTMLParser
+from pathlib import Path
 
+class Blocks(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=False)
+        self.active = False
+        self.parts = []
+        self.blocks = []
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() == 'script':
+            self.active = dict(attrs).get('type', '').lower() == 'application/ld+json'
+            self.parts = []
+    def handle_data(self, data):
+        if self.active:
+            self.parts.append(data)
+    def handle_endtag(self, tag):
+        if tag.lower() == 'script' and self.active:
+            self.blocks.append(''.join(self.parts))
+            self.active = False
 
-def validate_jsonld(content: str) -> List[str]:
-    """Validate JSON-LD blocks in HTML content."""
+def _validate_schema_object(obj, block_num, inherited_context=False):
     errors = []
-    pattern = r'<script\s+type=["\']application/ld\+json["\']\s*>(.*?)</script>'
-    blocks = re.findall(pattern, content, re.DOTALL | re.IGNORECASE)
+    prefix = f'Block {block_num}'
+    if not isinstance(obj, dict):
+        return [f'{prefix}: JSON-LD node must be an object']
+    context = obj.get('@context')
+    has_context = inherited_context or context is not None
+    if not has_context:
+        errors.append(f'{prefix}: missing @context')
+    if '@graph' in obj:
+        graph = obj['@graph']
+        if not isinstance(graph, list):
+            errors.append(f'{prefix}: @graph must be an array')
+        else:
+            for node in graph:
+                errors.extend(_validate_schema_object(node, block_num, has_context))
+    elif not obj.get('@type') and not obj.get('@id'):
+        errors.append(f'{prefix}: node needs @type or @id')
+    kind = obj.get('@type')
+    if kind is not None and not (isinstance(kind, str) and kind or isinstance(kind, list) and kind and all(isinstance(x, str) and x for x in kind)):
+        errors.append(f'{prefix}: @type must be a nonempty string or string array')
+    if re.search(r'\[(?:INSERT|Business Name|City|State|Phone|Address|Your[^\]]*|URL|Email)\]|\bREPLACE_ME\b', json.dumps(obj), re.I):
+        errors.append(f'{prefix}: unresolved placeholder')
+    return errors
 
-    if not blocks:
-        return []  # No schema found; not an error
-
-    for i, block in enumerate(blocks, 1):
-        block = block.strip()
+def validate_jsonld(content: str) -> list[str]:
+    parser = Blocks()
+    parser.feed(content)
+    errors = []
+    for number, raw in enumerate(parser.blocks, 1):
         try:
-            data = json.loads(block)
-        except json.JSONDecodeError as e:
-            errors.append(f"Block {i}: Invalid JSON; {e}")
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            errors.append(f'Block {number}: invalid JSON at line {exc.lineno}, column {exc.colno}')
             continue
-
-        if isinstance(data, list):
-            for item in data:
-                errors.extend(_validate_schema_object(item, i))
-        elif isinstance(data, dict):
-            errors.extend(_validate_schema_object(data, i))
-
+        nodes = data if isinstance(data, list) else [data]
+        for node in nodes:
+            errors.extend(_validate_schema_object(node, number))
     return errors
 
-
-def _validate_schema_object(obj: dict, block_num: int) -> List[str]:
-    """Validate a single schema object."""
-    errors = []
-    prefix = f"Block {block_num}"
-
-    # Check @context
-    if "@context" not in obj:
-        errors.append(f"{prefix}: Missing @context")
-    elif obj["@context"] not in ("https://schema.org", "http://schema.org"):
-        errors.append(f"{prefix}: @context should be 'https://schema.org'")
-
-    # Check @type
-    if "@type" not in obj:
-        errors.append(f"{prefix}: Missing @type")
-
-    # Check for placeholder text
-    placeholders = [
-        "[Business Name]",
-        "[City]",
-        "[State]",
-        "[Phone]",
-        "[Address]",
-        "[Your",
-        "[INSERT",
-        "REPLACE",
-        "[URL]",
-        "[Email]",
-    ]
-    text = json.dumps(obj)
-    for p in placeholders:
-        if p.lower() in text.lower():
-            errors.append(f"{prefix}: Contains placeholder text: {p}")
-
-    # Check for deprecated types
-    schema_type = obj.get("@type", "")
-    deprecated = {
-        "HowTo": "deprecated September 2023",
-        "SpecialAnnouncement": "deprecated July 31, 2025",
-        "CourseInfo": "retired June 2025",
-        "EstimatedSalary": "retired June 2025",
-        "LearningVideo": "retired June 2025",
-        "ClaimReview": "retired June 2025; fact-check rich results discontinued",
-        "VehicleListing": "retired June 2025; vehicle listing structured data discontinued",
-    }
-    if schema_type in deprecated:
-        errors.append(f"{prefix}: @type '{schema_type}' is {deprecated[schema_type]}")
-
-    # Check for restricted types used incorrectly
-    restricted = {"FAQPage": "restricted to government and healthcare sites only (Aug 2023)"}
-    if schema_type in restricted:
-        errors.append(f"{prefix}: @type '{schema_type}' is {restricted[schema_type]}; verify site qualifies")
-
-    return errors
-
-
-def main():
-    if len(sys.argv) < 2:
-        sys.exit(0)
-
-    filepath = sys.argv[1]
-
-    if not os.path.isfile(filepath):
-        sys.exit(0)
-
-    # Only validate HTML-like files
-    valid_extensions = (".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte", ".php", ".ejs")
-    if not filepath.endswith(valid_extensions):
-        sys.exit(0)
-
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument('file', nargs='?')
+    ap.add_argument('--require-schema', action='store_true')
+    args = ap.parse_args()
+    filename = args.file
+    if not filename:
+        try:
+            event = json.load(sys.stdin)
+        except (ValueError, OSError):
+            print('Schema hook: invalid or missing event JSON', file=sys.stderr)
+            return 2
+        filename = (event.get('tool_input') or {}).get('file_path')
+        if not filename:
+            return 0  # a non-file tool event
+    path = Path(filename)
+    if path.suffix.lower() not in {'.html', '.htm', '.jsx', '.tsx', '.vue', '.svelte', '.php', '.ejs', '.mdx'}:
+        return 0
     try:
-        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
-    except (OSError, IOError):
-        sys.exit(0)
-
+        content = path.read_text(encoding='utf-8')
+    except OSError:
+        print('Schema validation: target is unreadable', file=sys.stderr)
+        return 2
     errors = validate_jsonld(content)
+    parser = Blocks()
+    parser.feed(content)
+    if args.require_schema and not parser.blocks:
+        errors.append('Required JSON-LD was not found in rendered HTML')
+    if errors:
+        print(json.dumps({'status': 'fail', 'errors': errors, 'scope': 'JSON-LD structure, not rich-result eligibility'}))
+        return 2
+    return 0
 
-    if not errors:
-        sys.exit(0)
-
-    # Categorize errors
-    critical_keywords = ["placeholder", "deprecated", "retired"]
-    critical = [e for e in errors if any(kw in e.lower() for kw in critical_keywords)]
-    warnings = [e for e in errors if e not in critical]
-
-    if warnings:
-        print("⚠️  Schema validation warnings:")
-        for w in warnings:
-            print(f"  - {w}")
-
-    if critical:
-        print("🛑 Schema validation ERRORS (blocking):")
-        for e in critical:
-            print(f"  - {e}")
-        sys.exit(2)  # Block the edit
-
-    sys.exit(1)  # Warnings only; proceed
-
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    raise SystemExit(main())

@@ -1,15 +1,8 @@
 {
   "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/validate-schema.py\" \"$FILE_PATH\""
-          }
-        ]
-      }
-    ]
+    "PostToolUse": [{
+      "matcher": "Edit|Write",
+      "hooks": [{"type": "command", "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/validate-schema.py\"", "timeout": 20}]
+    }]
   }
 }
