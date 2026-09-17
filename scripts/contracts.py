@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Validate SEO evidence/finding/recommendation/action/outcome objects.
 
-This is a structural validator. Authorization and effect execution remain owned by Legion's
+This is a structural validator. Authorization and effect execution remain owned by SEO's
 normal authority/effect boundary; passing this validator never grants permission to mutate.
 """
 from __future__ import annotations

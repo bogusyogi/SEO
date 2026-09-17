@@ -26,7 +26,7 @@ search_ops.py run --cadence weekly ...
 search_ops.py brief
 ```
 
-Do not bypass Legion authority: the state script records actions; it does not authorize publication, redirects, indexing pushes, deletion, spend, or outreach.
+Do not bypass site policy and host authority: the state script records actions; it does not authorize publication, redirects, indexing pushes, deletion, spend, or outreach.
 
 ## State contract
 
@@ -170,4 +170,4 @@ CRITICAL ISSUES
 
 ## Doctrine drift
 
-Weekly or before high-impact advice, verify unstable claims against current official Google/Bing/platform documentation. Record `checked_at`, source URL/title, affected rule and whether Legion guidance changed. Do not silently preserve stale platform doctrine.
+Weekly or before high-impact advice, verify unstable claims against current official Google/Bing/platform documentation. Record `checked_at`, source URL/title, affected rule and whether SEO guidance changed. Do not silently preserve stale platform doctrine.

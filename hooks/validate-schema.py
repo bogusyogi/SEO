@@ -1,162 +1,80 @@
 #!/usr/bin/env python3
-"""Post-edit schema validation hook for Claude Code.
+"""JSON-LD syntax/structure gate. PostToolUse reports after an edit; it cannot undo it.
 
-Validates JSON-LD schema after file edits. Returns exit code 2 to block
-if critical validation errors found.
-
-Hook configuration in host settings:
-{
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 legion-skill://seo/hooks/validate-schema.py \"$FILE_PATH\"",
-            "exitCodes": { "2": "block" }
-          }
-        ]
-      }
-    ]
-  }
-}
-
-Note: matcher filters by tool name only (Edit, Write). The script itself
-checks if the file contains schema markup before validating.
+CLI usage: python validate-schema.py page.html (exit 2 on malformed markup).
+Hook usage: read standard tool_input.file_path from JSON on stdin.
+Schema.org vocabulary validity and Google rich-result eligibility are different questions.
 """
-
+from __future__ import annotations
+import argparse
 import json
-import re
 import sys
-import os
-from typing import List
+from html.parser import HTMLParser
+from pathlib import Path
+
+class Blocks(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=False); self.active=False; self.parts=[]; self.blocks=[]
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() == 'script':
+            self.active = dict(attrs).get('type','').lower() == 'application/ld+json'
+            if self.active: self.parts=[]
+    def handle_data(self, data):
+        if self.active: self.parts.append(data)
+    def handle_endtag(self, tag):
+        if tag.lower() == 'script' and self.active:
+            self.blocks.append(''.join(self.parts)); self.active=False
 
 
-def validate_jsonld(content: str) -> List[str]:
-    """Validate JSON-LD blocks in HTML content."""
-    errors = []
-    pattern = r'<script\s+type=["\']application/ld\+json["\']\s*>(.*?)</script>'
-    blocks = re.findall(pattern, content, re.DOTALL | re.IGNORECASE)
-
-    if not blocks:
-        return []  # No schema found; not an error
-
-    for i, block in enumerate(blocks, 1):
-        block = block.strip()
+def validate_jsonld(content: str) -> list[str]:
+    parser=Blocks(); parser.feed(content)
+    errors=[]
+    if parser.active: errors.append('Unterminated JSON-LD script')
+    for n, raw in enumerate(parser.blocks,1):
         try:
-            data = json.loads(block)
-        except json.JSONDecodeError as e:
-            errors.append(f"Block {i}: Invalid JSON; {e}")
-            continue
-
-        if isinstance(data, list):
-            for item in data:
-                errors.extend(_validate_schema_object(item, i))
-        elif isinstance(data, dict):
-            errors.extend(_validate_schema_object(data, i))
-
+            value=json.loads(raw, parse_constant=lambda x: (_ for _ in ()).throw(ValueError(x)))
+        except (ValueError,TypeError) as exc:
+            errors.append(f'Block {n}: Invalid JSON: {exc}'); continue
+        values=value if isinstance(value,list) else [value]
+        for obj in values:
+            if not isinstance(obj,dict):
+                errors.append(f'Block {n}: JSON-LD node must be an object'); continue
+            context=obj.get('@context')
+            if context is None: errors.append(f'Block {n}: Missing @context')
+            elif not isinstance(context,(str,dict,list)): errors.append(f'Block {n}: Invalid @context')
+            nodes=obj.get('@graph',[obj])
+            if not isinstance(nodes,list):
+                errors.append(f'Block {n}: @graph must be an array'); continue
+            for node in nodes:
+                if not isinstance(node,dict): errors.append(f'Block {n}: graph node must be an object'); continue
+                kind=node.get('@type')
+                if kind is None and not node.get('@id'): errors.append(f'Block {n}: node needs @type or @id')
+                elif kind is not None and not (isinstance(kind,str) or isinstance(kind,list) and all(isinstance(x,str) for x in kind)):
+                    errors.append(f'Block {n}: Invalid @type')
+            for token in ('[Business Name]','[INSERT','[URL]','REPLACE_ME'):
+                if token.lower() in raw.lower(): errors.append(f'Block {n}: unresolved placeholder {token}')
     return errors
 
 
-def _validate_schema_object(obj: dict, block_num: int) -> List[str]:
-    """Validate a single schema object."""
-    errors = []
-    prefix = f"Block {block_num}"
+def main(argv=None) -> int:
+    parser=argparse.ArgumentParser(description=__doc__); parser.add_argument('path',nargs='?')
+    args=parser.parse_args(argv)
+    event={}
+    if not args.path:
+        try: event=json.load(sys.stdin)
+        except (ValueError,OSError):
+            print('Schema hook: expected event JSON or a file path',file=sys.stderr); return 2
+        args.path=(event.get('tool_input') or {}).get('file_path')
+        if not args.path: return 0  # Event is not an applicable file operation.
+    path=Path(args.path)
+    if path.suffix.lower() not in {'.html','.htm','.jsx','.tsx','.vue','.svelte','.php','.ejs'}: return 0
+    try: errors=validate_jsonld(path.read_text(encoding='utf-8'))
+    except (OSError,UnicodeError) as exc:
+        print(f'Schema validation unavailable: {type(exc).__name__}',file=sys.stderr); return 2
+    if errors:
+        print(json.dumps({'status':'fail','path':str(path),'errors':errors,'phase':'post_edit' if event else 'gate'}))
+        return 2
+    print(json.dumps({'status':'pass','path':str(path),'scope':'JSON-LD syntax and basic structure only; not rich-result eligibility'}))
+    return 0
 
-    # Check @context
-    if "@context" not in obj:
-        errors.append(f"{prefix}: Missing @context")
-    elif obj["@context"] not in ("https://schema.org", "http://schema.org"):
-        errors.append(f"{prefix}: @context should be 'https://schema.org'")
-
-    # Check @type
-    if "@type" not in obj:
-        errors.append(f"{prefix}: Missing @type")
-
-    # Check for placeholder text
-    placeholders = [
-        "[Business Name]",
-        "[City]",
-        "[State]",
-        "[Phone]",
-        "[Address]",
-        "[Your",
-        "[INSERT",
-        "REPLACE",
-        "[URL]",
-        "[Email]",
-    ]
-    text = json.dumps(obj)
-    for p in placeholders:
-        if p.lower() in text.lower():
-            errors.append(f"{prefix}: Contains placeholder text: {p}")
-
-    # Check for deprecated types
-    schema_type = obj.get("@type", "")
-    deprecated = {
-        "HowTo": "deprecated September 2023",
-        "SpecialAnnouncement": "deprecated July 31, 2025",
-        "CourseInfo": "retired June 2025",
-        "EstimatedSalary": "retired June 2025",
-        "LearningVideo": "retired June 2025",
-        "ClaimReview": "retired June 2025; fact-check rich results discontinued",
-        "VehicleListing": "retired June 2025; vehicle listing structured data discontinued",
-    }
-    if schema_type in deprecated:
-        errors.append(f"{prefix}: @type '{schema_type}' is {deprecated[schema_type]}")
-
-    # Check for restricted types used incorrectly
-    restricted = {"FAQPage": "restricted to government and healthcare sites only (Aug 2023)"}
-    if schema_type in restricted:
-        errors.append(f"{prefix}: @type '{schema_type}' is {restricted[schema_type]}; verify site qualifies")
-
-    return errors
-
-
-def main():
-    if len(sys.argv) < 2:
-        sys.exit(0)
-
-    filepath = sys.argv[1]
-
-    if not os.path.isfile(filepath):
-        sys.exit(0)
-
-    # Only validate HTML-like files
-    valid_extensions = (".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte", ".php", ".ejs")
-    if not filepath.endswith(valid_extensions):
-        sys.exit(0)
-
-    try:
-        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
-    except (OSError, IOError):
-        sys.exit(0)
-
-    errors = validate_jsonld(content)
-
-    if not errors:
-        sys.exit(0)
-
-    # Categorize errors
-    critical_keywords = ["placeholder", "deprecated", "retired"]
-    critical = [e for e in errors if any(kw in e.lower() for kw in critical_keywords)]
-    warnings = [e for e in errors if e not in critical]
-
-    if warnings:
-        print("⚠️  Schema validation warnings:")
-        for w in warnings:
-            print(f"  - {w}")
-
-    if critical:
-        print("🛑 Schema validation ERRORS (blocking):")
-        for e in critical:
-            print(f"  - {e}")
-        sys.exit(2)  # Block the edit
-
-    sys.exit(1)  # Warnings only; proceed
-
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__': raise SystemExit(main())

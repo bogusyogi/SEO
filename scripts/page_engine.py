@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Legion-native Page Engine contract helper.
+"""SEO-native Page Engine contract helper.
 
 Validates page-family, page-type, query-ownership, information-gain and claim-control
 inputs. It identifies structural blockers before prose changes. It does not invent a

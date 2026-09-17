@@ -72,6 +72,15 @@ def list_sitemaps(site_url: str) -> dict:
         return {'property': site_url, 'sitemaps': [], 'error': str(exc)}
 
 
+def query_search_analytics(site_url, start_date=None, end_date=None, dimensions=None,
+                           search_type='web', row_limit=1000, filters=None, data_state='final'):
+    """Historical Python API. Totals now use the authoritative dimensionless query."""
+    end_date = end_date or (datetime.now() - timedelta(days=3)).strftime('%Y-%m-%d')
+    start_date = start_date or (datetime.strptime(end_date, '%Y-%m-%d') - timedelta(days=27)).strftime('%Y-%m-%d')
+    return query_v2(site_url, start_date, end_date, dimensions or ['query','page'],
+                    search_type, row_limit, 100000, filters, data_state)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description='Search Console helper; query uses provenance-safe v2 semantics')
     ap.add_argument('command', nargs='?', default='query', choices=['query', 'sitemaps', 'sites'])
@@ -97,7 +106,7 @@ def main() -> int:
         result = list_sitemaps(prop)
     else:
         end = args.end_date or (datetime.now() - timedelta(days=3)).strftime('%Y-%m-%d')
-        start = args.start_date or (datetime.now() - timedelta(days=args.days)).strftime('%Y-%m-%d')
+        start = args.start_date or (datetime.strptime(end, '%Y-%m-%d') - timedelta(days=args.days - 1)).strftime('%Y-%m-%d')
         filters = []
         if args.device:
             filters.append({'dimension': 'device', 'operator': 'equals', 'expression': args.device.upper()})

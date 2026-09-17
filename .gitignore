@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+.seo/
+.legion/seo/
+.env
+.env.*
+!.env.example
+*.sqlite*
+dist/
+build/
+*.egg-info/
+.unlighthouse/

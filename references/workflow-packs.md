@@ -12,7 +12,7 @@ Build a crawler-purpose matrix: search/index, generative retrieval, model traini
 Ingest verified server/CDN/WAF logs when supplied. Normalize verified bot identity, URL/template, status, latency, bytes/resource class and timestamp. Join to crawl, sitemap, internal-link, index, traffic and backlink evidence to identify crawl waste, under-crawled priority pages, stale redirects, errors and AI-crawler access failures. Spoofable user-agent strings alone are insufficient identity evidence.
 
 ## Agent readiness
-Exercise representative non-binding browser tasks: find, compare, open detail, filter/unfilter, enquire, recover from form error and stop before a binding action. Check semantic links/buttons, accessible names, state/error exposure, modal/focus/consent recovery, duplicate submission prevention and machine-readable success/failure. Binding actions require normal Legion authority.
+Exercise representative non-binding browser tasks: find, compare, open detail, filter/unfilter, enquire, recover from form error and stop before a binding action. Check semantic links/buttons, accessible names, state/error exposure, modal/focus/consent recovery, duplicate submission prevention and machine-readable success/failure. Binding actions require configured site and host authority.
 
 ## Search appearance and Discover
 Audit title-link inputs, snippets, site name, favicon, breadcrumb/date/image presentation, rich-result eligibility, mobile/desktop SERP fit and Discover readiness. Distinguish eligibility from guaranteed presentation. Where first-party reports exist, keep Search, Discover, Google News and generative surfaces separate.

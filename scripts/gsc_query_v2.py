@@ -64,7 +64,8 @@ def normalize_result(*, site_url: str, start_date: str, end_date: str,
     dim_impressions = sum(float(x.get('impressions', 0)) for x in rows)
     agg_clicks = float(aggregate_row.get('clicks', 0))
     agg_impressions = float(aggregate_row.get('impressions', 0))
-    return {
+    result = {
+        'schema_version': 2,
         'property': site_url,
         'date_range': {'start': start_date, 'end': end_date},
         'search_type': search_type,
@@ -95,13 +96,25 @@ def normalize_result(*, site_url: str, start_date: str, end_date: str,
         'error': None,
     }
 
+    # Old report consumers may keep using totals; never feed them dimension_sum.
+    result['totals'] = dict(result['aggregate'])
+    result['row_count'] = len(processed)
+    result['quick_wins'] = [dict(r, opportunity_state='hypothesis') for r in processed
+                            if 4 <= r['position'] <= 20 and r['impressions'] >= 100]
+    return result
+
 
 def query(site_url: str, start_date: str, end_date: str, dimensions: list[str],
           search_type: str, page_size: int, max_rows: int,
           filters: Optional[list] = None, data_state: str = 'final') -> dict:
-    svc = service()
+    try:
+        svc = service()
+    except Exception as exc:
+        return {'error': f'could not build Search Console service: {type(exc).__name__}', 'property': site_url}
     if not svc:
         return {'error': 'could not build Search Console service; check Google client dependency and credentials'}
+    if max_rows < 1 or page_size < 1:
+        return {'error': 'page_size and max_rows must be positive', 'property': site_url}
     common = {'startDate': start_date, 'endDate': end_date, 'type': search_type, 'dataState': data_state}
     if filters:
         common['dimensionFilterGroups'] = [{'filters': filters}]
@@ -125,11 +138,14 @@ def query(site_url: str, start_date: str, end_date: str, dimensions: list[str],
                 break
     except Exception as exc:
         return {'error': str(exc), 'property': site_url}
-    return normalize_result(
+    result = normalize_result(
         site_url=site_url, start_date=start_date, end_date=end_date,
         dimensions=dimensions, search_type=search_type, aggregate_row=aggregate_row,
         rows=rows, max_rows=max_rows, hit_cap=hit_cap, data_state=data_state,
     )
+    result['filters'] = filters or []
+    result['aggregation_type'] = aggregate.get('responseAggregationType')
+    return result
 
 
 def main() -> int:
@@ -151,7 +167,7 @@ def main() -> int:
     if not prop:
         raise SystemExit('--property required unless configured')
     end = args.end_date or (datetime.now() - timedelta(days=3)).strftime('%Y-%m-%d')
-    start = args.start_date or (datetime.now() - timedelta(days=args.days)).strftime('%Y-%m-%d')
+    start = args.start_date or (datetime.strptime(end, '%Y-%m-%d') - timedelta(days=args.days - 1)).strftime('%Y-%m-%d')
     filters = []
     if args.device:
         filters.append({'dimension': 'device', 'operator': 'equals', 'expression': args.device.upper()})

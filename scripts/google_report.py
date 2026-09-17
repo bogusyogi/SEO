@@ -1110,8 +1110,8 @@ def _build_executive_summary(domain, timestamp, data, report_type):
     wins = []
     qw = gsc.get("quick_wins", [])
     if qw:
-        wins.append(f'{len(qw)} search queries at positions 4-10 with high impressions '
-                    f'(small ranking bump = significant traffic)')
+        wins.append(f'{len(qw)} search queries in the configured opportunity band '
+                    f'(hypotheses to validate; traffic gains are not guaranteed)')
 
     opps = mobile.get("opportunities", [])
     for o in opps[:3]:

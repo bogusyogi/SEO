@@ -75,6 +75,7 @@ def main():
     ap.add_argument("--key-location", help="explicit https URL of the key file "
                                            "(default: https://<host>/<key>.txt)")
     ap.add_argument("--json", dest="out", help="write result JSON here")
+    ap.add_argument("--allow-submit", action="store_true", help="authorize this URL notification")
     a = ap.parse_args()
 
     if a.command == "genkey":
@@ -84,6 +85,8 @@ def main():
     if a.command != "submit":
         ap.error(f"unknown command '{a.command}'")
 
+    if not a.allow_submit:
+        ap.error("submit requires --allow-submit; a notification does not guarantee indexing")
     key = os.environ.get("INDEXNOW_KEY")
     if not key:
         print("Error: INDEXNOW_KEY not set. Run 'python indexnow.py genkey', set the "

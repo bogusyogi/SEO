@@ -84,6 +84,30 @@ def call(method: str, params: dict | None = None, body: dict | None = None) -> d
     return {"method": method, "d": parsed.get("d", parsed)}
 
 
+def links(site: str, target: str, max_pages: int = 20) -> dict:
+    if not 1 <= max_pages <= 32767:
+        raise ValueError('max_pages must be 1..32767')
+    rows, total_pages = [], None
+    for page in range(max_pages):
+        result = call('GetUrlLinks', params={'siteUrl': site, 'link': target, 'page': page})
+        if result.get('error'):
+            return {'status':'partial' if rows else 'error', 'error':result['error'], 'rows':rows,
+                    'property':site, 'target':target, 'coverage':{'complete':False,'pages_fetched':page}}
+        payload = result.get('d')
+        if not isinstance(payload, dict) or 'Details' not in payload or 'TotalPages' not in payload:
+            return {'status':'error','error':'unexpected Bing link response shape','rows':rows,'coverage':{'complete':False}}
+        batch = payload['Details']
+        if not isinstance(batch, list):
+            return {'status':'error','error':'unexpected Bing Details type','rows':rows,'coverage':{'complete':False}}
+        rows.extend({'source_url':r.get('Url'), 'target_url':target, 'anchor':r.get('AnchorText'),
+                     'provider':'bing_webmaster'} for r in batch)
+        total_pages = int(payload['TotalPages'])
+        if page + 1 >= total_pages: break
+    return {'status':'ok', 'error':None, 'provider':'bing_webmaster', 'property':site, 'target':target,
+            'rows':rows, 'coverage':{'complete':page + 1 >= (total_pages or 0),
+            'pages_fetched':page + 1,'total_pages':total_pages,'scope':'one target URL in the Bing index; not a web-wide backlink census'}}
+
+
 SUBCOMMANDS = {
     "traffic": "GetRankAndTrafficStats",
     "queries": "GetQueryStats",
@@ -98,17 +122,27 @@ def main():
     ap.add_argument("command", help="traffic|queries|pages|links|crawl|submit|raw")
     ap.add_argument("method", nargs="?", help="for 'raw': the BWT method name")
     ap.add_argument("--site", help="verified siteUrl, e.g. https://example.com/")
+    ap.add_argument("--max-pages", type=int, default=20)
+    ap.add_argument("--allow-submit", action="store_true", help="explicit write authority for this submission")
     ap.add_argument("--url", help="for 'submit': the page URL to instant-index")
     ap.add_argument("--json", dest="out", help="write full JSON result here")
     a = ap.parse_args()
 
     if a.command == "submit":
+        if not a.allow_submit:
+            ap.error("submit requires --allow-submit")
         if not (a.site and a.url):
             ap.error("submit needs --site and --url")
         res = call("SubmitUrl", body={"siteUrl": a.site, "url": a.url})
+    elif a.command == "links":
+        if not a.site or not a.url:
+            ap.error("links needs --site and --url (one owned target); use --max-pages to bound collection")
+        res = links(a.site, a.url, a.max_pages)
     elif a.command == "raw":
         if not a.method:
             ap.error("raw needs a method name")
+        if not a.method.startswith("Get"):
+            ap.error("raw permits read-only Get methods only")
         res = call(a.method, params={"siteUrl": a.site})
     elif a.command in SUBCOMMANDS:
         if not a.site:
@@ -120,7 +154,7 @@ def main():
     if a.out:
         with open(a.out, "w", encoding="utf-8") as f:
             json.dump(res, f, indent=1)
-    print(json.dumps(res, indent=1)[:4000])
+    print(json.dumps(res, indent=1))
     sys.exit(1 if res.get("error") else 0)
 
 

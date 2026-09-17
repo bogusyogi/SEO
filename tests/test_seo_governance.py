@@ -11,6 +11,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SEO_ROOT = HERE.parent
 SCRIPTS = SEO_ROOT / 'scripts'
+sys.path.insert(0, str(SCRIPTS))
 FIX = HERE / 'fixtures'
 
 
@@ -34,15 +35,20 @@ class SeoGovernanceTests(unittest.TestCase):
 
     def test_provider_selection_prefers_first_party_and_hides_secret_values(self):
         old = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
-        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'C:/secret/credentials.json'
+        credential = tempfile.NamedTemporaryFile(suffix='.json', delete=False)
+        credential.write(b'{"type":"service_account"}'); credential.close()
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credential.name
         try:
             discovered = self.providers.discover()
             blob = json.dumps(discovered)
-            self.assertNotIn('C:/secret/credentials.json', blob)
+            self.assertNotIn(credential.name, blob)
+            self.assertEqual(discovered['providers']['google_gsc']['availability'], 'configured')
+            self.assertFalse(discovered['providers']['google_gsc']['authenticated'])
             selected = self.providers.choose('search_performance')
             self.assertEqual(selected['provider'], 'google_gsc')
             self.assertFalse(selected['paid'])
         finally:
+            Path(credential.name).unlink(missing_ok=True)
             if old is None:
                 os.environ.pop('GOOGLE_APPLICATION_CREDENTIALS', None)
             else:

@@ -23,38 +23,31 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def get(url, method='GET'):
+    from safe_http import fetch
     try:
-        req = urllib.request.Request(url, headers={'User-Agent': UA}, method=method)
-        r = urllib.request.urlopen(req, timeout=20)
-        body = r.read().decode('utf-8', 'ignore') if method == 'GET' else ''
-        return r.getcode(), r.geturl(), body, dict(r.headers)
-    except urllib.error.HTTPError as exc:
-        return exc.code, url, '', dict(exc.headers or {})
+        result = fetch(url, method=method)
+        headers = dict(result['headers'])
+        headers['_seo_initial_status'] = result['redirects'][0]['status'] if result['redirects'] else result['status']
+        return result['status'], result['url'], result['body'], headers
     except Exception as exc:
-        return 0, url, str(exc), {}
+        return 0, url, type(exc).__name__ + ': ' + str(exc), {}
 
 
 def status_only(url):
-    for method in ('HEAD', 'GET'):
-        try:
-            req = urllib.request.Request(url, headers={'User-Agent': UA}, method=method)
-            r = urllib.request.build_opener(NoRedirect).open(req, timeout=15)
-            return r.getcode(), r.headers.get('Location')
-        except urllib.error.HTTPError as exc:
-            return exc.code, (exc.headers or {}).get('Location')
-        except Exception:
-            continue
-    return 0, None
+    from safe_http import fetch
+    try:
+        result = fetch(url, method='HEAD', redirects=0)
+        if result['status'] == 405:
+            result = fetch(url, redirects=0)
+        return result['status'], result['headers'].get('location')
+    except Exception:
+        return 0, None
 
 
 def normalize(url):
-    url = urllib.parse.urldefrag(url)[0]
-    sp = urllib.parse.urlsplit(url)
-    if sp.path == '':
-        return url + '/'
-    if '.' not in sp.path.rsplit('/', 1)[-1] and not url.endswith('/') and not sp.query:
-        url += '/'
-    return url
+    # Slash variants can have different redirect/canonical semantics; never merge them.
+    sp = urllib.parse.urlsplit(urllib.parse.urldefrag(url)[0])
+    return urllib.parse.urlunsplit((sp.scheme.lower(), sp.netloc.lower(), sp.path or '/', sp.query, ''))
 
 
 def parse(html):
@@ -72,8 +65,8 @@ def parse(html):
     sig['imgs'] = len(imgs)
     sig['img_no_alt'] = sum(1 for tag in imgs if not re.search(r'\balt\s*=\s*["\'][^"\']*["\']', tag, re.I))
     sig['viewport'] = bool(re.search(r'<meta[^>]+name\s*=\s*["\']viewport["\']', html, re.I))
-    sig['noindex'] = bool(re.search(r'<meta[^>]+name\s*=\s*["\']robots["\'][^>]+content\s*=\s*["\'][^"\']*noindex', html, re.I))
-    sig['mixed_content'] = bool(re.search(r'\b(?:src|href)\s*=\s*["\']http://', html, re.I))
+    sig['noindex'] = bool(re.search(r'<meta(?=[^>]*name\s*=\s*["\'](?:robots|googlebot)["\'])(?=[^>]*content\s*=\s*["\'][^"\']*(?:noindex|none))[^>]*>', html, re.I))
+    sig['mixed_content'] = bool(re.search(r'<(?:img|script|iframe|video|audio|source)\b[^>]*\bsrc\s*=\s*["\']http://|<link\b[^>]*\bhref\s*=\s*["\']http://', html, re.I))
     return sig, imgs
 
 
@@ -85,7 +78,9 @@ def discover_sitemaps(origin, robots_text):
 
 
 def sitemap_urls(url, seen=None):
-    seen = seen or set()
+    seen = set() if seen is None else seen
+    if len(seen) >= 50:
+        return set()
     if url in seen:
         return set()
     seen.add(url)
@@ -102,6 +97,8 @@ def sitemap_urls(url, seen=None):
 
 
 def audit(start, maxpages):
+    if not 1 <= maxpages <= 1000:
+        raise ValueError('maxpages must be 1..1000')
     start = start.rstrip('/')
     sp = urllib.parse.urlsplit(start)
     origin, host = f'{sp.scheme}://{sp.netloc}', sp.netloc
@@ -121,7 +118,7 @@ def audit(start, maxpages):
             continue
         seen.add(url)
         code, final, html, headers = get(url)
-        sig = {'status': code, 'final': final, 'x_robots_tag': headers.get('X-Robots-Tag') or headers.get('x-robots-tag')}
+        sig = {'status': code, 'initial_status': headers.get('_seo_initial_status', code), 'final': final, 'x_robots_tag': headers.get('X-Robots-Tag') or headers.get('x-robots-tag')}
         if code == 200 and '<html' in html.lower():
             parsed, _ = parse(html)
             if parsed.get('canonical'):
@@ -143,10 +140,10 @@ def audit(start, maxpages):
         pages[url] = sig
 
     checked, broken, redirects = {}, {}, {}
-    for target in link_targets:
+    for target in sorted(link_targets)[:maxpages * 5]:
         base = normalize(target)
         if urllib.parse.urlsplit(target).netloc == host and base in pages:
-            status, location = pages[base]['status'], None
+            status, location = pages[base].get('initial_status', pages[base]['status']), pages[base].get('final')
         else:
             status, location = status_only(target)
         checked[target] = status
@@ -187,7 +184,7 @@ def audit(start, maxpages):
         if noindex and normalize(url) in sitemap: issues['noindex_in_sitemap'].append(url)
 
     for loc in sitemap:
-        status = checked.get(loc) or (pages.get(loc, {}) or {}).get('status')
+        status = checked.get(loc) or (pages.get(loc, {}) or {}).get('initial_status')
         if status and 300 <= status < 400: issues['redirect_in_sitemap'].append(f'{loc} ({status})')
         elif status and status >= 400: issues['4xx_in_sitemap'].append(f'{loc} ({status})')
 
@@ -197,6 +194,10 @@ def audit(start, maxpages):
     return {
         'url': start,
         'crawled': len(pages),
+        'coverage': {'page_cap': maxpages, 'queued_unvisited': len(queue),
+                     'links_checked': len(checked), 'links_not_checked': max(0, len(link_targets)-len(checked)),
+                     'collection_failures': sum(x.get('status') == 0 for x in pages.values()),
+                     'complete': False if queue or len(checked) < len(link_targets) else None},
         'sitemap_urls': len(sitemap),
         'robots_sitemaps': discover_sitemaps(origin, robots),
         'broken_links_all': broken,

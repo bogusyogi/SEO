@@ -97,6 +97,9 @@ def organic_traffic_report(
         "error": None,
     }
 
+    if days < 1 or days > 3650:
+        result["error"] = "days must be between 1 and 3650"
+        return result
     client = _build_ga4_client()
     if not client:
         result["error"] = (
@@ -225,17 +228,41 @@ def organic_traffic_report(
         # Non-fatal: daily data succeeded, pages failed
         result["pages_error"] = f"Error fetching top pages: {e}"
 
-    # Calculate totals
-    if result["daily_data"]:
-        total_sessions = sum(d["sessions"] for d in result["daily_data"])
-        total_users = sum(d["users"] for d in result["daily_data"])
-        total_pageviews = sum(d["pageviews"] for d in result["daily_data"])
-        result["totals"] = {
-            "sessions": total_sessions,
-            "users": total_users,
-            "pageviews": total_pageviews,
-            "avg_daily_sessions": round(total_sessions / len(result["daily_data"]), 1),
+    # Distinct users are not additive across days: request the complete period separately.
+    try:
+        totals_request = RunReportRequest(
+            property=prop,
+            dimensions=[],
+            metrics=[Metric(name=n) for n in ('sessions','totalUsers','screenPageViews','keyEvents','totalRevenue')],
+            date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
+            dimension_filter=daily_request.dimension_filter,
+            limit=1,
+            return_property_quota=True,
+        )
+        totals_response = client.run_report(totals_request)
+        values = [v.value for v in totals_response.rows[0].metric_values] if totals_response.rows else ['0'] * 5
+        result['totals'] = {
+            'sessions': int(values[0]), 'users': int(values[1]), 'pageviews': int(values[2]),
+            'key_events': float(values[3]), 'revenue': float(values[4]),
+            'avg_daily_sessions': round(int(values[0]) / days, 1),
+            'provenance': 'dimensionless GA4 period query; not a sum of daily distinct users',
         }
+        metadata = getattr(totals_response, 'metadata', None)
+        result['metadata'] = {
+            'currency_code': getattr(metadata, 'currency_code', None),
+            'time_zone': getattr(metadata, 'time_zone', None),
+            'subject_to_thresholding': getattr(metadata, 'subject_to_thresholding', None),
+            'data_loss_from_other_row': getattr(metadata, 'data_loss_from_other_row', None),
+        }
+    except Exception as exc:
+        result['totals_error'] = f'Error fetching period totals: {exc}'
+        result['error'] = result['totals_error']
+    result['status'] = 'partial' if result.get('pages_error') or result.get('totals_error') else 'ok'
+    result['coverage'] = {
+        'page_row_count': getattr(locals().get('pages_response'), 'row_count', None),
+        'returned_pages': len(result['top_pages']),
+        'pages_complete': False if result.get('pages_error') else (getattr(locals().get('pages_response'), 'row_count', limit + 1) <= limit),
+    }
 
     return result
 
@@ -263,9 +290,11 @@ def top_pages_report(
         "report": "top_organic_pages",
         "date_range": report.get("date_range"),
         "pages": report.get("top_pages", []),
-        "total_organic_sessions": report.get("totals", {}).get("sessions", 0),
+        "total_organic_sessions": report.get("totals", {}).get("sessions"),
         "quota_tokens_used": report.get("quota_tokens_used"),
-        "error": report.get("error"),
+        "error": report.get("pages_error") or report.get("error"),
+        "status": report.get("status"),
+        "coverage": report.get("coverage"),
     }
 
 
@@ -285,6 +314,9 @@ def device_breakdown(
     """
     result = {"property": property_id, "report": "device_breakdown", "devices": [], "error": None}
 
+    if days < 1 or days > 3650:
+        result["error"] = "days must be between 1 and 3650"
+        return result
     client = _build_ga4_client()
     if not client:
         result["error"] = "Could not build GA4 client."
@@ -350,6 +382,9 @@ def country_breakdown(
     """
     result = {"property": property_id, "report": "country_breakdown", "countries": [], "error": None}
 
+    if days < 1 or days > 3650:
+        result["error"] = "days must be between 1 and 3650"
+        return result
     client = _build_ga4_client()
     if not client:
         result["error"] = "Could not build GA4 client."
@@ -413,6 +448,8 @@ def main():
     parser.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 
     args = parser.parse_args()
+    if args.days < 1 or args.limit < 1:
+        parser.error("days and limit must be positive")
 
     # Resolve property
     prop = args.property
@@ -473,6 +510,8 @@ def main():
                 for i, page in enumerate(pages[:10], 1):
                     print(f"  {i:2d}. {page['landing_page']} ({page['sessions']:,} sessions)")
 
+    return 1 if result.get("error") or result.get("pages_error") or result.get("status") == "partial" else 0
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

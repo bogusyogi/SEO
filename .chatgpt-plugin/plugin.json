@@ -1,7 +1,0 @@
-{
-  "name": "seo",
-  "version": "0.1.0",
-  "description": "Standalone SEO/AEO/GEO system for Codex/ChatGPT-style agent hosts",
-  "entrypoint": "SKILL.md",
-  "agent_metadata": "agents/openai.yaml"
-}

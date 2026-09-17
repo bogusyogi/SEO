@@ -1,0 +1,34 @@
+name: Standalone qualification
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run deterministic tests
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Check standalone closure
+        if: always()
+        run: python scripts/seo_closure.py --json
+      - name: Archive exact tracked source
+        if: always()
+        run: git archive --format=zip --output="$RUNNER_TEMP/seo-source.zip" HEAD
+      - name: Upload source for reproducible qualification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seo-source-${{ github.sha }}
+          path: ${{ runner.temp }}/seo-source.zip
+          retention-days: 7

@@ -1,134 +1,137 @@
 #!/usr/bin/env python3
-"""Provider-neutral longitudinal rank observation store.
-
-This tool ingests observations; it does not scrape a SERP. Provider adapters remain responsible
-for collection and cost/terms. Project market/language/device are part of every observation.
-"""
+"""Provenance-aware rank snapshots. Missing collection is not a lost ranking."""
 from __future__ import annotations
-
 import argparse
 import csv
 import json
+import math
+import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from seo_state import state_dir as project_state_dir, atomic_json, transaction_lock
 
 
 def now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+    return datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
 
 
 def state_dir(root: str | Path) -> Path:
-    return Path(root).resolve() / '.legion' / 'seo' / 'rank-tracking'
+    return project_state_dir(root) / 'rank-tracking'
 
 
 def read_input(path: Path) -> list[dict[str, Any]]:
     if path.suffix.lower() == '.csv':
-        with path.open(newline='', encoding='utf-8-sig') as fh:
-            return list(csv.DictReader(fh))
+        with path.open(newline='', encoding='utf-8-sig') as fh: return list(csv.DictReader(fh))
     payload = json.loads(path.read_text(encoding='utf-8'))
-    if isinstance(payload, list):
-        return payload
-    if isinstance(payload, dict) and isinstance(payload.get('rows'), list):
-        return payload['rows']
-    if isinstance(payload, dict) and isinstance(payload.get('observations'), list):
-        return payload['observations']
+    if isinstance(payload, list): return payload
+    if isinstance(payload, dict):
+        for name in ('rows', 'observations'):
+            if isinstance(payload.get(name), list): return payload[name]
     raise ValueError('expected list or object with rows[]/observations[]')
 
 
-def normalize(row: dict[str, Any], defaults: dict[str, str]) -> dict[str, Any]:
+def normalize(row: dict, defaults: dict) -> dict:
     keyword = str(row.get('keyword') or row.get('query') or '').strip()
-    if not keyword:
-        raise ValueError('rank observation missing keyword/query')
-    position_raw = row.get('position')
-    position = float(position_raw) if position_raw not in (None, '') else None
-    return {
-        'keyword': keyword,
-        'market': str(row.get('market') or defaults.get('market') or '').strip(),
-        'language': str(row.get('language') or defaults.get('language') or '').strip(),
-        'device': str(row.get('device') or defaults.get('device') or 'desktop').strip(),
-        'intended_page': row.get('intended_page') or row.get('target_url'),
-        'observed_url': row.get('observed_url') or row.get('url') or row.get('page'),
-        'organic_position': position,
-        'serp_features': row.get('serp_features') or [],
-        'provider': str(row.get('provider') or defaults.get('provider') or 'unknown'),
-        'collected_at': str(row.get('collected_at') or defaults.get('collected_at') or now()),
-    }
+    provider = str(row.get('provider') or defaults.get('provider') or '').strip()
+    if not keyword or not provider: raise ValueError('keyword and provider are required')
+    value = row.get('organic_position', row.get('position'))
+    position = float(value) if value not in (None, '') else None
+    if position is not None and (not math.isfinite(position) or position < 1):
+        raise ValueError('position must be finite and >= 1, or null')
+    status = row.get('status') or ('ranked' if position is not None else 'not_collected')
+    if status not in {'ranked','checked_not_found','not_collected','provider_failed'}:
+        raise ValueError('invalid rank observation status')
+    if (status == 'ranked') != (position is not None):
+        raise ValueError('only ranked observations may carry a position')
+    kind = row.get('observation_type') or defaults.get('observation_type') or ('gsc_average_position' if provider in {'gsc','google_gsc'} else 'serp_rank')
+    result = {name: str(row.get(name) or defaults.get(name) or fallback) for name, fallback in (
+        ('market',''),('language',''),('device','desktop'),('engine','google'),('location',''))}
+    if not result['market'] or not result['language']: raise ValueError('market and language are required')
+    result.update(keyword=keyword, provider=provider, observation_type=kind, status=status,
+                  intended_page=row.get('intended_page') or row.get('target_url'),
+                  observed_url=row.get('observed_url') or row.get('url') or row.get('page'),
+                  organic_position=position, serp_features=row.get('serp_features') or [],
+                  search_depth=row.get('search_depth') or defaults.get('search_depth'),
+                  collected_at=row.get('collected_at') or defaults.get('collected_at') or now())
+    return result
 
 
-def ingest(root: str | Path, observations: list[dict[str, Any]], defaults: dict[str, str]) -> Path:
-    out_dir = state_dir(root)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    normalized = [normalize(row, defaults) for row in observations]
-    stamp = defaults.get('snapshot') or datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-    path = out_dir / f'{stamp}.json'
-    path.write_text(json.dumps({'created_at': now(), 'observations': normalized}, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+def key(row: dict) -> tuple:
+    return tuple(row.get(k) for k in ('keyword','market','language','device','provider','engine','location','observation_type'))
+
+
+def ingest(root: str | Path, observations: list[dict], defaults: dict) -> Path:
+    directory = state_dir(root)
+    normalized = [normalize(r, defaults) for r in observations]
+    keys = [key(r) for r in normalized]
+    if len(set(keys)) != len(keys): raise ValueError('duplicate keyword/measurement identity in snapshot')
+    stamp = defaults.get('snapshot') or datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,100}', stamp): raise ValueError('invalid snapshot identifier')
+    path = directory / f'{stamp}.json'
+    with transaction_lock(directory / '.snapshots'):
+        if path.exists(): raise ValueError('snapshot already exists; never overwrite evidence')
+        atomic_json(path, {'schema_version':2, 'created_at':now(), 'observations':normalized})
     return path
 
 
 def snapshots(root: str | Path) -> list[Path]:
-    d = state_dir(root)
-    return sorted(d.glob('*.json')) if d.exists() else []
+    directory = state_dir(root)
+    return sorted(directory.glob('*.json')) if directory.exists() else []
 
 
-def compare(root: str | Path) -> dict[str, Any]:
-    snaps = snapshots(root)
-    if len(snaps) < 2:
-        return {'status': 'not_testable', 'reason': 'at least two rank snapshots are required', 'snapshots': len(snaps)}
-    prev = json.loads(snaps[-2].read_text(encoding='utf-8')).get('observations', [])
-    curr = json.loads(snaps[-1].read_text(encoding='utf-8')).get('observations', [])
-    key = lambda x: (x.get('keyword'), x.get('market'), x.get('language'), x.get('device'))
-    pmap = {key(x): x for x in prev}
+def compare_rows(previous: list[dict], current: list[dict]) -> dict:
+    pmap, cmap = {key(r):r for r in previous}, {key(r):r for r in current}
+    streams = lambda rows: {key(r)[1:] for r in rows}
+    if previous and current and not streams(previous).intersection(streams(current)):
+        return {'status':'not_comparable','reason':'provider, engine, market, device or measurement type changed','changes':[]}
     changes = []
-    for cur in curr:
-        old = pmap.get(key(cur))
-        if not old:
-            changes.append({'type': 'new_keyword_observation', 'current': cur})
+    for k in sorted(pmap.keys() | cmap.keys(), key=str):
+        old, cur = pmap.get(k), cmap.get(k)
+        if cur is None:
+            changes.append({'type':'missing_observation','keyword':old['keyword'],'provider':old.get('provider'),
+                            'status':'not_collected','previous':old})
             continue
-        old_pos, new_pos = old.get('organic_position'), cur.get('organic_position')
-        delta = None if old_pos is None or new_pos is None else round(old_pos - new_pos, 3)
-        ownership_changed = bool(old.get('observed_url') and cur.get('observed_url') and old.get('observed_url') != cur.get('observed_url'))
-        intended_mismatch = bool(cur.get('intended_page') and cur.get('observed_url') and cur.get('intended_page') != cur.get('observed_url'))
-        changes.append({
-            'keyword': cur['keyword'], 'market': cur['market'], 'language': cur['language'], 'device': cur['device'],
-            'previous_position': old_pos, 'current_position': new_pos, 'position_improvement': delta,
-            'previous_url': old.get('observed_url'), 'current_url': cur.get('observed_url'),
-            'ownership_changed': ownership_changed, 'intended_page_mismatch': intended_mismatch,
-        })
-    return {
-        'status': 'ok',
-        'previous_snapshot': snaps[-2].name,
-        'current_snapshot': snaps[-1].name,
-        'changes': changes,
-        'ownership_changes': sum(1 for x in changes if x.get('ownership_changed')),
-        'intended_page_mismatches': sum(1 for x in changes if x.get('intended_page_mismatch')),
-    }
+        if old is None:
+            changes.append({'type':'new_keyword_observation','keyword':cur['keyword'],'current':cur}); continue
+        comparable = old.get('status','ranked') == cur.get('status','ranked') == 'ranked'
+        op, np = old.get('organic_position'), cur.get('organic_position')
+        changes.append({'type':'comparison','keyword':cur['keyword'], 'provider':cur.get('provider'),
+                        'market':cur.get('market'),'language':cur.get('language'),'device':cur.get('device'),
+                        'observation_type':cur.get('observation_type'),'status':cur.get('status'),
+                        'previous_position':op,'current_position':np,
+                        'position_improvement':round(op-np,3) if comparable and op is not None and np is not None else None,
+                        'previous_url':old.get('observed_url'),'current_url':cur.get('observed_url'),
+                        'ownership_changed':bool(comparable and old.get('observed_url') and cur.get('observed_url') and old['observed_url'] != cur['observed_url']),
+                        'intended_page_mismatch':bool(cur.get('intended_page') and cur.get('observed_url') and cur['intended_page'] != cur['observed_url'])})
+    return {'status':'ok','changes':changes,
+            'ownership_changes':sum(bool(c.get('ownership_changed')) for c in changes),
+            'intended_page_mismatches':sum(bool(c.get('intended_page_mismatch')) for c in changes),
+            'missing_observations':sum(c.get('type') == 'missing_observation' for c in changes)}
+
+
+def compare(root: str | Path) -> dict:
+    paths = snapshots(root)
+    if len(paths) < 2: return {'status':'not_testable','reason':'two snapshots required','snapshots':len(paths)}
+    old, new = [json.loads(p.read_text()) for p in paths[-2:]]
+    result = compare_rows(old.get('observations', []), new.get('observations', []))
+    return dict(result, previous_snapshot=paths[-2].name, current_snapshot=paths[-1].name)
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--root', default='.')
-    sub = ap.add_subparsers(dest='command', required=True)
-    p_ing = sub.add_parser('ingest')
-    p_ing.add_argument('input')
-    p_ing.add_argument('--market', required=True)
-    p_ing.add_argument('--language', required=True)
-    p_ing.add_argument('--device', default='desktop')
-    p_ing.add_argument('--provider', required=True)
-    p_ing.add_argument('--snapshot')
-    sub.add_parser('compare')
-    args = ap.parse_args()
-    if args.command == 'ingest':
-        path = ingest(args.root, read_input(Path(args.input)), {
-            'market': args.market, 'language': args.language, 'device': args.device,
-            'provider': args.provider, 'snapshot': args.snapshot or '',
-        })
-        out = {'status': 'ok', 'path': str(path)}
-    else:
-        out = compare(args.root)
-    print(json.dumps(out, indent=2, ensure_ascii=False))
-    return 0 if out.get('status') in ('ok', 'not_testable') else 1
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--root', default='.')
+    sub = parser.add_subparsers(dest='command',required=True)
+    p = sub.add_parser('ingest'); p.add_argument('input'); p.add_argument('--market',required=True)
+    p.add_argument('--language',required=True); p.add_argument('--provider',required=True)
+    p.add_argument('--device',default='desktop'); p.add_argument('--engine',default='google'); p.add_argument('--snapshot')
+    sub.add_parser('compare'); args=parser.parse_args()
+    try:
+        result = {'status':'ok','path':str(ingest(args.root,read_input(Path(args.input)),vars(args)))} if args.command == 'ingest' else compare(args.root)
+    except (ValueError,OSError) as exc:
+        result={'status':'error','error':str(exc)}
+    print(json.dumps(result,indent=2)); return 1 if result['status'] == 'error' else 0
 
-
-if __name__ == '__main__':
-    raise SystemExit(main())
+if __name__ == '__main__': raise SystemExit(main())
