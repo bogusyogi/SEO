@@ -48,6 +48,14 @@ asking for known facts. Never silently substitute a global Google property.
   `scripts/search_ops.py`; `references/operations.md` and `docs/OPERATIONS.md`.
 - Images: optional restored `extensions/banana/scripts/`; host-native image tools
   are equally acceptable. Missing provider or spending authority is not success.
+- Live CMS workflow: `seo.py cms` and `docs/INTEGRATIONS.md`; prepare an exact draft,
+  approve its digest, apply once, inspect the CMS receipt, then verify the public page.
+  An uncertain write must be reconciled rather than repeated.
+- Report delivery: `seo.py deliver`, explicitly configured TLS SMTP and recipients.
+  Server acceptance is not inbox delivery.
+- Controlled SERPs: optional `seo.py serp` with explicit provider, location, language,
+  device/OS, sample depth and paid budget. Never use this as a prerequisite for GSC/GA4.
+  MCP read tools intentionally cannot invoke this paid lane.
 - Local/ecommerce/international: use only the applicable specialist references.
 
 ## Operate

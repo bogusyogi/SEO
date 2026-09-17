@@ -36,3 +36,18 @@ is necessary. The temporary recovery workflow is removed from the delivered tree
 
 Provider configuration presence is not a successful live integration. Protocol fixture
 success is not proof of marketplace publication or installation in every native host.
+
+## Follow-up contract work — 2026-09-17
+
+The 0.3.0 follow-up adds original concrete integration code rather than importing a donor
+runtime. API/protocol contracts consulted:
+
+- Google Analytics FilterExpression: https://developers.google.com/analytics/devguides/reporting/data/v1/rest/v1beta/FilterExpression
+- DataForSEO Live Advanced: https://docs.dataforseo.com/v3/serp-se-type-live-advanced/
+- Official MCP Python clients: https://py.sdk.modelcontextprotocol.io/client/transports/
+
+SellRight's authenticated blog contract was inspected directly before writing its client.
+No private server implementation or credentials are copied into this package. Optional
+SDK qualification covers supported MCP v1/v2 client branches without making either a
+core runtime dependency. This does not broaden the earlier donor review into an exhaustive
+review of every upstream file.

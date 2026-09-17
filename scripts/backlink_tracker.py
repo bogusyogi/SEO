@@ -32,9 +32,10 @@ def ingest(root, payload, provider, scope, snapshot=None):
     stamp = snapshot or datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     if not re.fullmatch(r'[A-Za-z0-9_-]+', stamp):
         raise ValueError('invalid snapshot name')
-    path = state_dir(root) / 'backlinks' / (stamp + '.json')
+    path = state_dir(root) / 'backlinks' / 'snapshots' / (stamp + '.json')
     result = {'provider': provider, 'scope': scope, 'rows': rows,
-              'collected_at': datetime.now(timezone.utc).isoformat(),
+              'collected_at': payload.get('collected_at') or datetime.now(timezone.utc).isoformat(),
+              'targets': payload.get('targets'), 'status': payload.get('status', 'ok'),
               'coverage': payload.get('coverage') or {'complete': False}}
     with transaction_lock(state_dir(root) / 'backlinks'):
         if path.exists():
@@ -56,16 +57,39 @@ def compare(old, new):
             'note': 'Loss candidates require rechecking the source page; no automatic disavow or outreach.'}
 
 
+
+def snapshots(root):
+    base = state_dir(root) / 'backlinks'
+    candidates = list(base.glob('*.json')) + list((base / 'snapshots').glob('*.json'))
+    valid = []
+    for path in candidates:
+        try:
+            row = json.loads(path.read_text(encoding='utf-8'))
+            if 'rows' in row and row.get('provider') and row.get('scope'):
+                valid.append((row.get('collected_at', ''), path))
+        except (OSError, ValueError):
+            continue
+    return [path for _, path in sorted(valid)]
+
+
+def latest(root):
+    paths = snapshots(root)
+    if len(paths) < 2:
+        return {'status': 'not_testable', 'reason': 'two compatible backlink snapshots required'}
+    old, new = [json.loads(path.read_text(encoding='utf-8')) for path in paths[-2:]]
+    return compare(old, new)
+
+
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--root',default='.')
     sub=ap.add_subparsers(dest='command',required=True)
     p=sub.add_parser('ingest');p.add_argument('input');p.add_argument('--provider',required=True);p.add_argument('--scope',required=True)
     sub.add_parser('compare');a=ap.parse_args()
     if a.command=='ingest':
-        result={'status':'ok','path':str(ingest(a.root,json.loads(Path(a.input).read_text()),a.provider,a.scope))}
+        result={'status':'ok','path':str(ingest(a.root,json.loads(Path(a.input).read_text(encoding='utf-8')),a.provider,a.scope))}
     else:
-        paths=sorted((state_dir(a.root)/'backlinks').glob('*.json'))
-        result=compare(*[json.loads(x.read_text()) for x in paths[-2:]]) if len(paths)>=2 else {'status':'not_testable','reason':'two snapshots required'}
+        paths=snapshots(a.root)
+        result=compare(*[json.loads(x.read_text(encoding='utf-8')) for x in paths[-2:]]) if len(paths)>=2 else {'status':'not_testable','reason':'two snapshots required'}
     print(json.dumps(result,indent=2));return 0
 
 if __name__=='__main__':

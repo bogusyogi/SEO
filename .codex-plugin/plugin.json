@@ -1,6 +1,6 @@
 {
   "name": "seo",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Independent SEO operations, first-party evidence, site policy and reporting",
   "skills": "./skills/",
   "mcpServers": "./.mcp.codex.json",

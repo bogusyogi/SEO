@@ -11,6 +11,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python: ['3.12']
+        include:
+          - os: ubuntu-latest
+            python: '3.10'
+          - os: ubuntu-latest
+            python: '3.13'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -22,3 +27,18 @@ jobs:
       - run: python scripts/seo_closure.py --json
       - run: python -m compileall -q scripts hooks extensions seo.py
       - run: python seo.py --help
+      - run: python scripts/qualify_package.py
+  sdk-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        mcp: ['mcp>=1.28,<2', 'mcp>=2,<3']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'google-analytics-data>=0.18,<1' '${{ matrix.mcp }}'
+      - run: python scripts/sdk_contracts.py

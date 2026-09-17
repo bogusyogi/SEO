@@ -22,6 +22,24 @@ def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+
+def proposal_identity(row):
+    keys = ('site', 'path', 'url', 'kind', 'content_sha256', 'baseline_sha256', 'evidence')
+    return digest(json.dumps({key: row.get(key) for key in keys}, sort_keys=True, ensure_ascii=False).encode('utf-8'))
+
+
+def config_identity(site):
+    return digest(json.dumps(site, sort_keys=True, ensure_ascii=False).encode('utf-8'))
+
+
+def check_binding(row, site):
+    approval = row.get('approval') or {}
+    if approval.get('proposal_digest') != proposal_identity(row) or approval.get('config_digest') != config_identity(site):
+        raise PermissionError('proposal target or site configuration changed after approval; create a fresh proposal')
+    baseline = row.get('baseline')
+    if (digest(baseline.encode('utf-8')) if baseline is not None else None) != row.get('baseline_sha256'):
+        raise PermissionError('baseline material was altered')
+
 def item_path(root, item_id):
     if not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', item_id):
         raise ValueError('invalid queue id')
@@ -84,10 +102,15 @@ def approve(root, item_id, *, content_sha256, approval_ref):
         raise ValueError('explicit approval reference required')
     with transaction_lock(state_dir(root) / 'queue'):
         path = item_path(root, item_id)
-        row = json.loads(path.read_text())
+        row = json.loads(path.read_text(encoding='utf-8'))
         if row['status'] != 'proposed' or row['content_sha256'] != content_sha256:
             raise ValueError('approval must match the exact proposed digest')
-        row.update(status='approved', approval={'reference': approval_ref, 'digest': content_sha256})
+        site = load(root)
+        authorize(site, 'publish' if row['kind'] == 'content' else 'metadata', url=row['url'], path=row['path'])
+        if site['domain'] != row['site'] or digest(row['content'].encode('utf-8')) != content_sha256:
+            raise PermissionError('proposal site or content changed')
+        row.update(status='approved', approval={'reference': approval_ref, 'digest': content_sha256,
+            'proposal_digest': proposal_identity(row), 'config_digest': config_identity(site)})
         atomic_json(path, row)
         return {'id': item_id, 'status': 'approved', 'content_sha256': content_sha256}
 
@@ -95,8 +118,9 @@ def approve(root, item_id, *, content_sha256, approval_ref):
 def apply(root, item_id):
     with transaction_lock(state_dir(root) / 'queue'):
         path = item_path(root, item_id)
-        row = json.loads(path.read_text())
+        row = json.loads(path.read_text(encoding='utf-8'))
         site = load(root)
+        check_binding(row, site)
         action = 'publish' if row['kind'] == 'content' else 'metadata'
         authorize(site, action, url=row['url'], path=row['path'])
         if row['site'] != site['domain']:
@@ -131,11 +155,16 @@ def verify(root, item_id, *, expected_text, fetcher=fetch):
         raise ValueError('nonempty expected rendered text required')
     path = item_path(root, item_id)
     with transaction_lock(state_dir(root) / 'queue'):
-        row = json.loads(path.read_text())
-        authorize(load(root), 'verify', url=row['url'])
+        row = json.loads(path.read_text(encoding='utf-8'))
+        site = load(root)
+        check_binding(row, site)
+        authorize(site, 'verify', url=row['url'])
+        if expected_text not in row['content']:
+            raise ValueError('verification assertion must occur in the approved content')
         if row['status'] not in {'applied', 'deployed_verified'}:
             raise ValueError('verification requires an applied proposal')
         result = fetcher(row['url'])
+        authorize(site, 'verify', url=result['url'])
         passed = result['status'] == 200 and expected_text in result['body']
         row['verification'] = {'passed': passed, 'url': result['url'], 'http_status': result['status'],
                                'body_sha256': digest(result['body'].encode()), 'expected_text': expected_text,
@@ -149,8 +178,9 @@ def verify(root, item_id, *, expected_text, fetcher=fetch):
 def rollback(root, item_id):
     with transaction_lock(state_dir(root) / 'queue'):
         path = item_path(root, item_id)
-        row = json.loads(path.read_text())
+        row = json.loads(path.read_text(encoding='utf-8'))
         site = load(root)
+        check_binding(row, site)
         authorize(site, 'rollback', url=row['url'], path=row['path'])
         target = target_path(root, row['path'])
         if row['status'] not in {'applied', 'deployed_verified'}:
@@ -180,7 +210,7 @@ def main():
     p = sub.add_parser('verify'); p.add_argument('id'); p.add_argument('--expected-text', required=True)
     a = ap.parse_args()
     if a.command == 'propose':
-        result = propose(a.root, a.id, path=a.path, content=Path(a.content_file).read_text(), url=a.url, kind=a.kind, evidence=a.evidence)
+        result = propose(a.root, a.id, path=a.path, content=Path(a.content_file).read_text(encoding='utf-8'), url=a.url, kind=a.kind, evidence=a.evidence)
     elif a.command == 'approve':
         result = approve(a.root, a.id, content_sha256=a.digest, approval_ref=a.approval_ref)
     elif a.command == 'verify':
