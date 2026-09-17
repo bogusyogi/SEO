@@ -16,13 +16,14 @@ COMMANDS={
     'ops':'search_ops.py','run':'seo_runner.py','content':'content_queue.py',
     'scan':'external_scan.py','closure':'seo_closure.py','providers':'provider_registry.py',
     'mcp':'mcp_server.py','coverage':'coverage.py',
+    'cms':'cms_sellright.py','deliver':'report_delivery.py','serp':'serp_collect.py',
 }
 
 
 def main(argv=None):
     args=list(sys.argv[1:] if argv is None else argv)
     if not args or args[0] in {'--help','-h'}:
-        print('SEO 0.2.0 — standalone; no Legion dependency\n')
+        print('SEO 0.3.0 — standalone; no Legion dependency\n')
         print('Usage: python /path/to/SEO/seo.py COMMAND [arguments]\n')
         for k,v in COMMANDS.items():print(f'  {k:12s} {v}')
         print('  migrate-state  --root SITE_ROOT (preserves historical state)')

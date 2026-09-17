@@ -48,7 +48,7 @@ def normalize(row: dict, defaults: dict) -> dict:
         raise ValueError('only ranked observations may carry a position')
     kind = row.get('observation_type') or defaults.get('observation_type') or ('gsc_average_position' if provider in {'gsc','google_gsc'} else 'serp_rank')
     result = {name: str(row.get(name) or defaults.get(name) or fallback) for name, fallback in (
-        ('market',''),('language',''),('device','desktop'),('engine','google'),('location',''))}
+        ('market',''),('language',''),('device','desktop'),('engine','google'),('location',''),('os',''))}
     if not result['market'] or not result['language']: raise ValueError('market and language are required')
     result.update(keyword=keyword, provider=provider, observation_type=kind, status=status,
                   intended_page=row.get('intended_page') or row.get('target_url'),
@@ -60,7 +60,7 @@ def normalize(row: dict, defaults: dict) -> dict:
 
 
 def key(row: dict) -> tuple:
-    return tuple(row.get(k) for k in ('keyword','market','language','device','provider','engine','location','observation_type'))
+    return tuple(row.get(k) for k in ('keyword','market','language','device','provider','engine','location','observation_type','os'))
 
 
 def ingest(root: str | Path, observations: list[dict], defaults: dict) -> Path:
@@ -114,10 +114,38 @@ def compare_rows(previous: list[dict], current: list[dict]) -> dict:
 
 def compare(root: str | Path) -> dict:
     paths = snapshots(root)
-    if len(paths) < 2: return {'status':'not_testable','reason':'two snapshots required','snapshots':len(paths)}
-    old, new = [json.loads(p.read_text()) for p in paths[-2:]]
-    result = compare_rows(old.get('observations', []), new.get('observations', []))
-    return dict(result, previous_snapshot=paths[-2].name, current_snapshot=paths[-1].name)
+    if len(paths) < 2:
+        return {'status':'not_testable','reason':'two snapshots required','snapshots':len(paths)}
+    # Collectors may interleave different providers/devices. Compare consecutive
+    # observations within each stream, never just the last two files globally.
+    streams = {}
+    for path in paths:
+        payload = json.loads(path.read_text(encoding='utf-8'))
+        grouped = {}
+        for row in payload.get('observations', []):
+            grouped.setdefault(key(row)[1:], []).append(row)
+        for identity, rows in grouped.items():
+            streams.setdefault(identity, []).append((payload.get('created_at', ''), path.name, rows))
+    results = []
+    for identity, observations in streams.items():
+        observations.sort(key=lambda item: (item[0], item[1]))
+        if len(observations) < 2:
+            results.append({'status':'not_testable', 'stream':list(identity), 'changes':[],
+                            'reason':'two snapshots of this measurement stream required'})
+            continue
+        previous, current = observations[-2:]
+        result = compare_rows(previous[2], current[2])
+        results.append(dict(result, stream=list(identity), previous_snapshot=previous[1],
+                            current_snapshot=current[1], collected_at=current[0]))
+    usable = [x for x in results if x['status'] == 'ok']
+    if len(results) == 1:
+        return dict(results[0], streams=results)
+    changes = [item for result in usable for item in result['changes']]
+    return {'status':'ok' if usable else 'not_testable', 'streams':results, 'changes':changes,
+            'ownership_changes':sum(x.get('ownership_changes',0) for x in usable),
+            'intended_page_mismatches':sum(x.get('intended_page_mismatches',0) for x in usable),
+            'missing_observations':sum(x.get('missing_observations',0) for x in usable),
+            'unqualified_streams':len(results)-len(usable)}
 
 
 def main() -> int:

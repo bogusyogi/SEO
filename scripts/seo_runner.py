@@ -11,12 +11,12 @@ import sqlite3
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from collector import collect
+from collector import collect, persist_observations
 from seo_state import state_dir, atomic_json, transaction_lock
 from site_policy import load
 from reporting import analyze, render
 
-LANES = {'audit', 'gsc', 'ga4', 'bing', 'backlinks'}
+LANES = {'audit', 'gsc', 'ga4', 'bing', 'backlinks', 'gsc_ranks', 'serp'}
 
 
 def tick(root='.', *, now=None, run_collector=collect):
@@ -26,7 +26,7 @@ def tick(root='.', *, now=None, run_collector=collect):
     path = base / 'schedule.json'
     if not path.exists():
         return {'status': 'not_configured', 'reason': 'no schedule.json; no jobs run'}
-    schedule = json.loads(path.read_text())
+    schedule = json.loads(path.read_text(encoding='utf-8'))
     jobs = schedule.get('jobs', [])
     if len(jobs) > 20:
         raise ValueError('at most 20 jobs per site')
@@ -65,6 +65,11 @@ def tick(root='.', *, now=None, run_collector=collect):
                 stamp = key.replace(':', '-') + f'-{attempt}'
                 artifact = base / lane / (stamp + '.json')
                 atomic_json(artifact, result)
+                try:
+                    result.update(persist_observations(root, result, stamp))
+                except (ValueError, OSError, KeyError, TypeError) as exc:
+                    result.update(status='partial', history_error=type(exc).__name__)
+                atomic_json(artifact, result)
                 db.execute('UPDATE jobs SET state=?,next_retry=?,result=? WHERE key=?',
                            (result.get('status', 'failed'), now + min(3600, 60 * 2**attempt), str(artifact), key))
                 db.commit()
@@ -76,7 +81,16 @@ def tick(root='.', *, now=None, run_collector=collect):
             atomic_json(base / 'reports/latest-run.json', report)
             analysis = analyze(root)
             atomic_json(base / 'reports/evidence-brief.json', analysis)
-            (base / 'reports/latest-run.md').write_text(render(site['domain'], analysis))
+            (base / 'reports/latest-run.md').write_text(render(site['domain'], analysis), encoding='utf-8')
+            if (site.get('delivery') or {}).get('auto_send_reports') is True:
+                from report_delivery import deliver_latest
+                try:
+                    report['delivery'] = deliver_latest(root)
+                except Exception as exc:
+                    report['delivery'] = {'state': 'blocked', 'error': type(exc).__name__}
+                if report['delivery'].get('state') != 'succeeded':
+                    report['status'] = 'partial'
+                atomic_json(base / 'reports/latest-run.json', report)
             return report
         finally:
             db.close()
@@ -84,7 +98,7 @@ def tick(root='.', *, now=None, run_collector=collect):
 
 def portfolio(path):
     config_path = Path(path).resolve()
-    config = json.loads(config_path.read_text())
+    config = json.loads(config_path.read_text(encoding='utf-8'))
     roots = config.get('roots') or []
     if not roots or len(roots) > 100:
         raise ValueError('portfolio requires 1..100 explicit site roots')
@@ -102,8 +116,24 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--root', default='.')
     ap.add_argument('--portfolio')
-    ap.add_argument('command', choices=['tick'], nargs='?', default='tick')
+    ap.add_argument('command', choices=['tick', 'serve'], nargs='?', default='tick')
+    ap.add_argument('--poll-seconds', type=int, default=300)
+    ap.add_argument('--max-ticks', type=int, default=0, help='0 runs in the foreground until stopped')
     a = ap.parse_args()
+    if a.command == 'serve':
+        if a.poll_seconds < 60 or a.max_ticks < 0:
+            ap.error('poll interval must be at least 60 seconds and max-ticks nonnegative')
+        count = 0
+        try:
+            while not a.max_ticks or count < a.max_ticks:
+                result = portfolio(a.portfolio) if a.portfolio else tick(a.root)
+                print(json.dumps(result), flush=True)
+                count += 1
+                if not a.max_ticks or count < a.max_ticks:
+                    time.sleep(a.poll_seconds)
+        except KeyboardInterrupt:
+            return 0
+        return 0 if result['status'] == 'ok' else 2
     result = portfolio(a.portfolio) if a.portfolio else tick(a.root)
     print(json.dumps(result, indent=2))
     return 0 if result['status'] == 'ok' else 2

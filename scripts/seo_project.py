@@ -75,6 +75,8 @@ def setup_project(root: str | Path, *, domain: str, market: str, language: str,
     for name in REQUIRED_STATE_DIRS:
         (base / name).mkdir(exist_ok=True)
     existing = load_site(root)
+    if existing.get('domain') and existing['domain'].lower().rstrip('.') != domain.lower().rstrip('.'):
+        raise ValueError('refusing to repurpose another site project; choose a new site root')
     project = {
         **existing,
         'schema_version': 1,

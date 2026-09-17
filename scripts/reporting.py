@@ -1,6 +1,7 @@
 """Deterministic operator brief from collected evidence, not self-reported completion."""
 from __future__ import annotations
 import json
+from datetime import date
 from pathlib import Path
 from seo_state import state_dir
 
@@ -8,11 +9,19 @@ from seo_state import state_dir
 def metric_changes(previous, current):
     if previous.get('site') != current.get('site') or previous.get('lane') != current.get('lane'):
         return {'status':'not_comparable'}
+    if previous.get('hostname_scope') != current.get('hostname_scope'):
+        return {'status':'not_comparable','reason':'measured host scope changed'}
     old,new=previous.get('data',{}),current.get('data',{})
-    for field in ('property','search_type','dimensions','filters'):
+    for field in ('property','search_type','dimensions','filters','hostname_scope','currency','time_zone'):
         if old.get(field)!=new.get(field):return {'status':'not_comparable','reason':field+' changed'}
     if previous.get('status')!='ok' or current.get('status')!='ok':
         return {'status':'not_testable','reason':'failed or partial collection'}
+    try:
+        windows=[x.get('date_range') for x in (old,new)]
+        if all(windows) and (date.fromisoformat(windows[0]['end'])-date.fromisoformat(windows[0]['start'])).days != (date.fromisoformat(windows[1]['end'])-date.fromisoformat(windows[1]['start'])).days:
+            return {'status':'not_comparable','reason':'measured window lengths changed'}
+    except (ValueError,KeyError,TypeError):
+        return {'status':'not_testable','reason':'invalid measurement dates'}
     a=old.get('aggregate',old.get('totals',{}));b=new.get('aggregate',new.get('totals',{}))
     changes={}
     for key in ('clicks','impressions','ctr','position','sessions','users','key_events','revenue'):
@@ -25,14 +34,16 @@ def metric_changes(previous, current):
 
 def analyze(root):
     base=state_dir(root);out={'lanes':{},'critical':[],'opportunities':[],'missing':[]}
-    for lane in ('audit','gsc','ga4','bing','backlinks'):
+    for lane in ('audit','gsc','ga4','bing','backlinks','gsc_ranks','serp'):
         snapshots=[]
         for path in (base/lane).glob('*.json'):
             try:
-                envelope=json.loads(path.read_text())
+                envelope=json.loads(path.read_text(encoding='utf-8'))
                 if envelope.get('lane')==lane:snapshots.append((envelope.get('collected_at',''),envelope))
             except (OSError,ValueError):continue
-        if not snapshots:out['missing'].append(lane);continue
+        if not snapshots:
+            if lane != 'serp': out['missing'].append(lane)
+            continue
         snapshots.sort(key=lambda x:x[0]);current=snapshots[-1][1]
         out['lanes'][lane]={'status':current.get('status'),'collected_at':current.get('collected_at')}
         if current.get('status')!='ok':out['missing'].append(lane);continue
@@ -45,6 +56,10 @@ def analyze(root):
                                   'impressions':r.get('impressions'),'state':'opportunity_hypothesis'} for r in data.get('quick_wins',[])[:10]]
         if len(snapshots)>=2 and lane in {'gsc','ga4'}:
             out['lanes'][lane]['movement']=metric_changes(snapshots[-2][1],current)
+    from backlink_tracker import latest
+    from rank_tracker import compare
+    out['backlink_movement'] = latest(root)
+    out['rank_movement'] = compare(root)
     return out
 
 
@@ -61,6 +76,17 @@ def render(site,analysis):
     if analysis['opportunities']:
         lines+=['','## Queries to investigate','']
         for row in analysis['opportunities']:lines.append(f"- {row['query']}: position {row['position']}, impressions {row['impressions']}; validate intent and page quality before changing it.")
+    ranks = analysis.get('rank_movement', {})
+    links = analysis.get('backlink_movement', {})
+    lines += ['', '## Rank and backlink movement', '',
+        'Rank history: ' + ranks.get('status', 'not_testable') + '.',
+        'GSC positions are impression-weighted averages, not controlled SERP checks. Missing observations are not ranking losses.']
+    for change in ranks.get('changes', [])[:15]:
+        if change.get('position_improvement') is not None:
+            lines.append(f"- {change['keyword']}: {change['previous_position']} → {change['current_position']} ({change.get('observation_type')}).")
+    lines += ['Backlink history: ' + links.get('status', 'not_testable') + '.',
+        'Newly observed links: ' + str(len(links.get('newly_observed', []))) + '.',
+        'Missing link observations: ' + str(len(links.get('missing', []))) + '; none is automatically confirmed lost.']
     lines+=['','Missing/unusable lanes: '+(', '.join(analysis['missing']) or 'none'),'',
             'Primary next action: '+('resolve the first critical technical blocker.' if analysis['critical'] else
                                      'restore missing measurement before intervention.' if analysis['missing'] else

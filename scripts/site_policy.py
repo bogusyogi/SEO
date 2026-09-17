@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from seo_project import load_site
 
-READ_ACTIONS = {'audit', 'gsc', 'ga4', 'bing', 'backlinks', 'rank', 'report', 'verify'}
+READ_ACTIONS = {'audit', 'gsc', 'ga4', 'bing', 'backlinks', 'rank', 'report', 'verify', 'gsc_ranks', 'cms_read', 'serp'}
 CONTENT_ACTIONS = {'draft', 'publish', 'outreach', 'campaign'}
 
 
@@ -24,7 +24,7 @@ def load(root: str | Path) -> dict:
     mode = policy.get('mode', 'read_only')
     # Preserve the historical passive-only boundary unless the operator explicitly
     # records a replacement policy with an approval reference.
-    if domain == 'stunningstrangers.com' and not policy.get('restriction_override_approval'):
+    if domain.removeprefix('www.') == 'stunningstrangers.com' and not policy.get('restriction_override_approval'):
         mode = 'technical_only'
     if mode not in {'read_only', 'technical_only', 'approved'}:
         raise ValueError('unknown site policy mode')
@@ -60,8 +60,12 @@ def property_for(site: dict, provider: str) -> str:
     if provider == 'gsc':
         target = value.removeprefix('sc-domain:')
         # A domain property may cover a configured subdomain, never an unrelated site.
-        if site['domain'] != host(target) and not site['domain'].endswith('.' + host(target)):
+        if not (site['domain'] == host(target) or value.startswith('sc-domain:') and site['domain'].endswith('.' + host(target))):
             raise PermissionError('GSC property does not cover this site')
+    if provider == 'gsc' and not value.startswith('sc-domain:'):
+        base_url = site.get('base_url') or 'https://' + site['domain'] + '/'
+        if not base_url.startswith(value):
+            raise PermissionError('URL-prefix property does not cover the configured base URL')
     if provider == 'ga4' and not value.removeprefix('properties/').isdigit():
         raise ValueError('GA4 requires the numeric property ID, not a measurement ID')
     if provider == 'bing' and host(value) != site['domain']:

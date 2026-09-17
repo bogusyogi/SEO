@@ -63,16 +63,16 @@ relative to that file. Each site retains its own mappings, schedule, policy and 
 Reports are saved locally; email/Slack delivery is a host integration, not falsely
 claimed as delivered merely because a report file exists.
 
-The Bing backlinks lane currently measures the configured site's root URL. For other
-important pages call `seo.py bing links --site SITE --url TARGET`, then ingest with
+The Bing backlinks lane defaults to the root URL. Set `backlink_targets` to the owned
+URLs that should be collected automatically (maximum 100); the batch retains per-target
+coverage and failures. For an individual page call `seo.py bing links --site SITE --url TARGET`, then ingest with
 `seo.py backlinks ingest FILE --provider bing_webmaster --scope TARGET --root SITE_ROOT`.
 Partial/capped provider coverage is preserved. Missing sampled links are not confirmed
 lost. Wider competitor backlink indexes require an optional provider or export.
 
 Rank snapshots can ingest normalized provider JSON/CSV. GSC average positions must be
-marked `gsc_average_position`, not `serp_rank`. A controlled SERP collector is supplied
-by the configured host/provider; this package does not scrape Google or silently buy
-rank data. Different providers/engines/locations/measurement types are not comparable.
+marked `gsc_average_position`, not `serp_rank`. The optional `seo.py serp` collector calls DataForSEO only under explicitly configured
+spending authority. This package does not scrape Google or silently buy rank data. Different providers/engines/locations/measurement types are not comparable.
 
 ## Authorized content and metadata changes
 
@@ -107,9 +107,9 @@ The public HTTP client denies private/local DNS targets, pins the validated addr
 checks redirected hosts and bounds response sizes. Local staging needs a separate
 trusted adapter, not an opt-out that weakens the public crawler.
 
-The queue is a **repository-file adapter**, not a generic CMS API. Vendure/WordPress
-publication and automatic deploy credentials must be configured and qualified through
-the host's existing tools or a future dedicated adapter. It is deliberately not a
+The queue is a **repository-file adapter**, not a generic CMS API. SellRight now has a separate `seo.py cms` adapter; its API/store identity and session
+token must be configured and live-qualified. Vendure/WordPress or static deployment
+still uses the host's existing tools or a separately implemented adapter. It is deliberately not a
 made-up “publish succeeded” response. The host may run authorized queue commands without
 Legion; no fresh manual approval is required for every action when an explicit standing
 operator policy delegates that exact class of work to the host.
@@ -121,3 +121,6 @@ exercise providers, protocol messages, site identity, retries, exact writes and 
 Live GSC/GA4/Bing access, native plugin loading, actual deployments, scheduling service
 availability and long-term outcome quality still require real-environment receipts.
 Neither tests nor source-file counts certify search-ranking or revenue improvement.
+
+For current schedule examples, foreground service operation, CMS approval/rollback,
+SMTP delivery, measurement scoping, and optional paid collection, see [INTEGRATIONS.md](INTEGRATIONS.md).

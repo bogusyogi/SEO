@@ -160,6 +160,7 @@ def main() -> int:
     ap.add_argument('--max-rows', type=int, default=100000)
     ap.add_argument('--device', choices=['desktop', 'mobile', 'tablet'])
     ap.add_argument('--country')
+    ap.add_argument('--host', action='append', default=[], help='Restrict evidence to these exact owned hostnames')
     ap.add_argument('--data-state', choices=['final', 'all'], default='final')
     ap.add_argument('--out')
     args = ap.parse_args()
@@ -169,6 +170,9 @@ def main() -> int:
     end = args.end_date or (datetime.now() - timedelta(days=3)).strftime('%Y-%m-%d')
     start = args.start_date or (datetime.strptime(end, '%Y-%m-%d') - timedelta(days=args.days - 1)).strftime('%Y-%m-%d')
     filters = []
+    if args.host:
+        from measurement_scope import gsc_host_filter
+        filters.append(gsc_host_filter(args.host))
     if args.device:
         filters.append({'dimension': 'device', 'operator': 'equals', 'expression': args.device.upper()})
     if args.country:

@@ -1,15 +1,37 @@
-"""Explicit site-bound collection. External SDKs are lazy and failures remain failures."""
+"""Bounded, explicitly site/host-scoped first-party collection. No paid dependency."""
 from __future__ import annotations
 import json
 import subprocess
-import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from runtime_setup import python_executable
 from site_policy import load, authorize, property_for
+from measurement_scope import site_hosts, owned_url
 
 SCRIPTS = Path(__file__).resolve().parent
+
+
+def run_json(root, args, timeout, output=None):
+    """Run only a packaged collector, with UTF-8 and structured failures."""
+    completed = subprocess.run([python_executable(), str(SCRIPTS / args[0]), *args[1:]],
+        cwd=str(Path(root).resolve()), capture_output=True, encoding='utf-8', errors='strict',
+        timeout=timeout, check=False)
+    text = output.read_text(encoding='utf-8') if output and output.exists() else completed.stdout
+    if len(text.encode('utf-8')) > 32 * 1024 * 1024:
+        raise ValueError('collector output exceeds 32 MiB')
+    payload = json.loads(text)
+    if not isinstance(payload, dict):
+        raise ValueError('collector returned a non-object')
+    return payload, completed.returncode
+
+
+def backlink_targets(site):
+    values = site.get('backlink_targets') or ['https://' + site['domain'] + '/']
+    if not isinstance(values, list) or not 1 <= len(values) <= 100:
+        raise ValueError('backlink_targets must contain 1..100 owned URLs')
+    return sorted({owned_url(site, url) for url in values})
 
 
 def collect(root, lane: str, *, days: int = 28, max_pages: int = 100,
@@ -19,40 +41,109 @@ def collect(root, lane: str, *, days: int = 28, max_pages: int = 100,
     site = load(root)
     authorize(site, lane)
     url = 'https://' + site['domain'] + '/'
-    with tempfile.TemporaryDirectory(prefix='seo-collect-') as td:
-        output = Path(td) / 'result.json'
-        if lane == 'gsc':
-            args = ['gsc_query_v2.py', '--property', property_for(site, 'gsc'), '--days', str(days)]
-        elif lane == 'ga4':
-            args = ['ga4_report.py', '--property', property_for(site, 'ga4'), '--days', str(days), '--json']
-        elif lane == 'bing':
-            args = ['bing_webmaster.py', 'traffic', '--site', property_for(site, 'bing')]
-        elif lane == 'backlinks':
-            args = ['bing_webmaster.py', 'links', '--site', property_for(site, 'bing'), '--url', url]
-        elif lane == 'audit':
-            args = ['site_audit.py', '--url', url, '--max', str(max_pages), '--json', str(output)]
-        else:
-            raise ValueError('unknown collector lane')
-        try:
-            result = subprocess.run([python_executable(), str(SCRIPTS / args[0]), *args[1:]],
-                                    cwd=str(Path(root).resolve()), capture_output=True, text=True,
-                                    timeout=timeout, check=False)
-            text = output.read_text() if output.exists() else result.stdout
-            data = json.loads(text)
-            if not isinstance(data, dict):
-                raise ValueError('collector returned a non-object')
-            # A completed crawl with findings is valid evidence, not failed collection.
-            bad = data.get('error') or data.get('pages_error') or data.get('status') in {'fail', 'partial', 'error'}
-            if lane == 'audit':
-                usable = any(x.get('status') == 200 for x in data.get('pages', {}).values())
-                bad = bad or not usable or data.get('coverage', {}).get('collection_failures', 0) > 0
-            elif result.returncode:
-                bad = True
-            state = 'partial' if bad else 'ok'
-            error = 'collector failed or returned incomplete evidence' if bad else None
-        except (subprocess.TimeoutExpired, ValueError, OSError) as exc:
-            state, data, error = 'failed', {}, type(exc).__name__
-        return {'schema_version': 1, 'site': site['domain'], 'lane': lane,
-                'collected_at': datetime.now(timezone.utc).isoformat(),
-                'status': state, 'error': error, 'data': data,
-                'scope': 'owned site; unavailable data is not zero'}
+    host_args = [part for name in site_hosts(site) for part in ('--host', name)]
+    data, state, error = {}, 'failed', None
+    try:
+        with tempfile.TemporaryDirectory(prefix='seo-collect-') as td:
+            output = Path(td) / 'result.json'
+            if lane in {'gsc', 'gsc_ranks'}:
+                args = ['gsc_query_v2.py', '--property', property_for(site, 'gsc'), '--days', str(days), *host_args]
+                if lane == 'gsc_ranks':
+                    args += ['--dimensions', 'query,country,device']
+            elif lane == 'ga4':
+                args = ['ga4_report.py', '--property', property_for(site, 'ga4'), '--days', str(days), '--json', *host_args]
+            elif lane == 'bing':
+                args = ['bing_webmaster.py', 'traffic', '--site', property_for(site, 'bing')]
+            elif lane == 'serp':
+                from serp_collect import collect as collect_serp
+                data = collect_serp(root)
+                state = data['status']
+                error = None if state == 'ok' else 'controlled SERP collection is partial; inspect receipts'
+                args = None
+            elif lane == 'audit':
+                args = ['site_audit.py', '--url', url, '--max', str(max_pages), '--json', str(output)]
+            elif lane == 'backlinks':
+                targets = backlink_targets(site)  # Validate the entire scope before any request.
+                link_pages = site.get('backlink_max_pages', 20)
+                if type(link_pages) is not int or not 1 <= link_pages <= 100:
+                    raise ValueError('backlink_max_pages must be 1..100 per target')
+                prop, start = property_for(site, 'bing'), time.monotonic()
+                data = {'provider': 'bing_webmaster', 'property': prop, 'targets': targets,
+                        'rows': [], 'target_results': [], 'status': 'ok',
+                        'scope': json.dumps(targets, separators=(',', ':')), 'coverage': {'complete': True}}
+                for target in targets:
+                    remaining = timeout - (time.monotonic() - start)
+                    if remaining <= 0:
+                        result, code = {'status': 'failed', 'error': 'batch deadline exceeded'}, 1
+                    else:
+                        try:
+                            result, code = run_json(root, ['bing_webmaster.py', 'links', '--site', prop,
+                                '--url', target, '--max-pages', str(link_pages)], remaining)
+                        except (subprocess.TimeoutExpired, ValueError, OSError) as exc:
+                            result, code = {'status': 'failed', 'error': type(exc).__name__}, 1
+                    if result.get('property') not in (None, prop) or result.get('target') not in (None, target):
+                        result, code = {'error': 'provider target mismatch'}, 1
+                    target_ok = not code and not result.get('error') and result.get('status') == 'ok'
+                    coverage = result.get('coverage') or {}
+                    data['target_results'].append({'target': target, 'status': 'ok' if target_ok else 'failed',
+                        'coverage': coverage, 'error': result.get('error')})
+                    for row in result.get('rows', []):
+                        if row.get('target_url') != target:
+                            raise ValueError('backlink response crossed target scope')
+                        data['rows'].append(row)
+                    if not target_ok or coverage.get('complete') is not True:
+                        data['coverage']['complete'] = False
+                        data['status'] = 'partial'
+                data['coverage'].update(targets_requested=len(targets),
+                    targets_succeeded=sum(x['status'] == 'ok' for x in data['target_results']),
+                    scope='configured target URLs in Bing; not a web-wide census')
+                state = data['status']
+                error = None if state == 'ok' else 'some backlink targets failed or reached the configured cap'
+                args = None
+            else:
+                raise ValueError('unknown collector lane')
+            if args:
+                data, code = run_json(root, args, timeout, output)
+                if lane in {'gsc', 'gsc_ranks', 'ga4'}:
+                    provider = 'gsc' if lane.startswith('gsc') else 'ga4'
+                    expected = property_for(site, provider).removeprefix('properties/')
+                    if str(data.get('property') or '').removeprefix('properties/') != expected:
+                        raise ValueError('collector property response mismatch')
+                bad = data.get('error') or data.get('pages_error') or data.get('status') in {'fail', 'failed', 'partial', 'error'}
+                if lane == 'audit':
+                    usable = any(x.get('status') == 200 for x in data.get('pages', {}).values())
+                    bad = bad or not usable or data.get('coverage', {}).get('collection_failures', 0) > 0
+                else:
+                    bad = bad or code != 0
+                state = 'partial' if bad else 'ok'
+                error = 'collector failed or returned incomplete evidence' if bad else None
+    except (subprocess.TimeoutExpired, ValueError, OSError) as exc:
+        state, error = 'failed', type(exc).__name__
+    return {'schema_version': 2, 'site': site['domain'], 'lane': lane,
+            'collected_at': datetime.now(timezone.utc).isoformat(), 'status': state, 'error': error,
+            'data': data, 'hostname_scope': site_hosts(site),
+            'scope': 'owned site; unavailable data is not zero'}
+
+
+def persist_observations(root, envelope, snapshot):
+    """Wire collected evidence into the same history consumed by reports and CLI."""
+    lane, data = envelope['lane'], envelope.get('data') or {}
+    if lane == 'gsc_ranks' and envelope.get('status') == 'ok':
+        from rank_tracker import ingest
+        rows = [dict(row, market=row.get('country') or 'not-reported', language='not-reported',
+                     device=row.get('device') or 'all', observed_url=None)
+                for row in data.get('rows', []) if row.get('position', 0) >= 1]
+        # Search Console does not report query language or a single precise SERP position.
+        path = ingest(root, rows, {'provider': 'google_gsc', 'observation_type': 'gsc_average_position',
+            'market': 'not-reported', 'language': 'not-reported', 'collected_at': envelope['collected_at'],
+            'snapshot': snapshot})
+        return {'rank_snapshot': str(path)}
+    if lane == 'serp' and data.get('rows'):
+        from rank_tracker import ingest
+        path = ingest(root, data['rows'], {'provider': 'dataforseo', 'snapshot': snapshot})
+        return {'rank_snapshot': str(path)}
+    if lane == 'backlinks' and envelope.get('status') in {'ok', 'partial'} and 'rows' in data:
+        from backlink_tracker import ingest
+        path = ingest(root, data, 'bing_webmaster', data['scope'], snapshot=snapshot)
+        return {'backlink_snapshot': str(path)}
+    return {}

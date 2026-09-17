@@ -15,14 +15,14 @@ from collector import collect
 from provider_doctor import doctor
 from seo_state import state_dir
 from rank_tracker import compare as rank_compare
-from backlink_tracker import compare as backlink_compare
+from backlink_tracker import latest as backlink_latest
 
 VERSIONS=('2025-06-18','2025-03-26','2024-11-05')
 TOOLS=[
     {'name':'seo_doctor','description':'Inspect configured site access; optional live bounded reads.',
      'inputSchema':{'type':'object','properties':{'root':{'type':'string'},'live':{'type':'boolean'}},'required':['root'],'additionalProperties':False}},
     {'name':'seo_collect','description':'Collect site-bound owned evidence, never publish or spend on paid providers.',
-     'inputSchema':{'type':'object','properties':{'root':{'type':'string'},'lane':{'type':'string','enum':['audit','gsc','ga4','bing','backlinks']}},'required':['root','lane'],'additionalProperties':False}},
+     'inputSchema':{'type':'object','properties':{'root':{'type':'string'},'lane':{'type':'string','enum':['audit','gsc','ga4','bing','backlinks','gsc_ranks']}},'required':['root','lane'],'additionalProperties':False}},
     {'name':'seo_report','description':'Read the latest persisted operator report, or explicitly return no report.',
      'inputSchema':{'type':'object','properties':{'root':{'type':'string'}},'required':['root'],'additionalProperties':False}},
     {'name':'seo_rank_changes','description':'Compare provider-scoped saved rank observations without collection.',
@@ -50,15 +50,15 @@ def call(name,args):
         raise ValueError('unexpected or missing tool arguments')
     if not isinstance(args['root'],str) or ('live' in args and not isinstance(args['live'],bool)):
         raise ValueError('invalid root/live type')
+    if 'lane' in args and args['lane'] not in schema['properties']['lane']['enum']:
+        raise ValueError('MCP collection supports only declared free read lanes')
     root=permitted_root(args['root'])
     if name=='seo_doctor':return doctor(root,args.get('live',False))
     if name=='seo_collect':return collect(root,args['lane'])
     if name=='seo_rank_changes':return rank_compare(root)
-    if name=='seo_backlink_changes':
-        snaps=sorted((state_dir(root)/'backlinks').glob('*.json'))
-        return backlink_compare(*[json.loads(p.read_text()) for p in snaps[-2:]]) if len(snaps)>=2 else {'status':'not_testable'}
+    if name=='seo_backlink_changes':return backlink_latest(root)
     path=state_dir(root)/'reports/latest-run.json'
-    return json.loads(path.read_text()) if path.exists() else {'status':'no_report'}
+    return json.loads(path.read_text(encoding='utf-8')) if path.exists() else {'status':'no_report'}
 
 
 def serve(input_stream=sys.stdin,output_stream=sys.stdout):
@@ -78,7 +78,7 @@ def serve(input_stream=sys.stdin,output_stream=sys.stdout):
         if method=='initialize':
             version=params.get('protocolVersion')
             answer['result']={'protocolVersion':version if version in VERSIONS else VERSIONS[0],
-                              'capabilities':{'tools':{'listChanged':False}},'serverInfo':{'name':'seo','version':'0.2.0'}}
+                              'capabilities':{'tools':{'listChanged':False}},'serverInfo':{'name':'seo','version':'0.3.0'}}
             initialized=True
         elif not initialized:
             answer['error']={'code':-32002,'message':'initialize first'}
