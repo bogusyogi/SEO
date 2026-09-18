@@ -62,6 +62,9 @@ def tick(root='.', *, now=None, run_collector=collect):
                     result = {'status': 'failed', 'site': site['domain'], 'lane': lane, 'error': type(exc).__name__}
                 if result.get('site') != site['domain']:
                     result = {'status': 'failed', 'lane': lane, 'site': site['domain'], 'error': 'collector site mismatch'}
+                # Failed collectors must sort after earlier successes, not disappear
+                # behind them because their exception envelope lacks a timestamp.
+                result.setdefault('collected_at', datetime.fromtimestamp(now, timezone.utc).isoformat())
                 stamp = key.replace(':', '-') + f'-{attempt}'
                 artifact = base / lane / (stamp + '.json')
                 atomic_json(artifact, result)

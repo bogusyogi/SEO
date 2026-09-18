@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from seo_state import state_dir as project_state_dir, atomic_json, transaction_lock
+from measurement_scope import compare_contexts
 
 
 def now() -> str:
@@ -73,7 +74,12 @@ def ingest(root: str | Path, observations: list[dict], defaults: dict) -> Path:
     path = directory / f'{stamp}.json'
     with transaction_lock(directory / '.snapshots'):
         if path.exists(): raise ValueError('snapshot already exists; never overwrite evidence')
-        atomic_json(path, {'schema_version':2, 'created_at':now(), 'observations':normalized})
+        payload = {'schema_version': 3, 'created_at': now(), 'observations': normalized,
+                   'provider': defaults.get('provider'), 'status': defaults.get('status', 'ok'),
+                   'collected_at': defaults.get('collected_at') or now()}
+        if 'measurement' in defaults:
+            payload.update(measurement=defaults['measurement'], coverage=defaults.get('coverage'))
+        atomic_json(path, payload)
     return path
 
 
@@ -116,27 +122,45 @@ def compare(root: str | Path) -> dict:
     paths = snapshots(root)
     if len(paths) < 2:
         return {'status':'not_testable','reason':'two snapshots required','snapshots':len(paths)}
-    # Collectors may interleave different providers/devices. Compare consecutive
-    # observations within each stream, never just the last two files globally.
-    streams = {}
+    # Preserve interleaved providers/markets. Scheduled GSC batches also carry empty
+    # and failed observations, so yesterday's success cannot masquerade as today's.
+    batches, identities = [], set()
     for path in paths:
         payload = json.loads(path.read_text(encoding='utf-8'))
         grouped = {}
         for row in payload.get('observations', []):
             grouped.setdefault(key(row)[1:], []).append(row)
-        for identity, rows in grouped.items():
-            streams.setdefault(identity, []).append((payload.get('created_at', ''), path.name, rows))
+        identities.update(grouped)
+        stamp = payload.get('collected_at') or payload.get('created_at') or ''
+        batches.append((stamp, path.name, payload, grouped))
+    batches.sort(key=lambda item: (item[0], item[1]))
     results = []
-    for identity, observations in streams.items():
-        observations.sort(key=lambda item: (item[0], item[1]))
+    for identity in sorted(identities, key=str):
+        observations = [item for item in batches if identity in item[3] or
+                        ('measurement' in item[2] and item[2].get('provider') == identity[3])]
+        current = observations[-1]
+        context = {'stream': list(identity), 'current_snapshot': current[1],
+                   'collected_at': current[0], 'measurement': current[2].get('measurement'),
+                   'coverage': current[2].get('coverage')}
         if len(observations) < 2:
-            results.append({'status':'not_testable', 'stream':list(identity), 'changes':[],
-                            'reason':'two snapshots of this measurement stream required'})
+            results.append(dict(context, status='not_testable', changes=[],
+                                reason='two snapshots of this measurement stream required'))
             continue
-        previous, current = observations[-2:]
-        result = compare_rows(previous[2], current[2])
-        results.append(dict(result, stream=list(identity), previous_snapshot=previous[1],
-                            current_snapshot=current[1], collected_at=current[0]))
+        previous = observations[-2]
+        context['previous_snapshot'] = previous[1]
+        if any(item[2].get('status', 'ok') != 'ok' for item in (previous, current)):
+            result = {'status': 'not_testable', 'reason': 'failed or partial rank collection', 'changes': []}
+        else:
+            qualification = compare_contexts(previous[2].get('measurement'), current[2].get('measurement'))
+            if qualification['status'] != 'ok':
+                result = dict(qualification, changes=[])
+            else:
+                result = dict(compare_rows(previous[3].get(identity, []), current[3].get(identity, [])),
+                              comparison_context=qualification)
+        results.append(dict(result, **context))
+    if not results:
+        return {'status': 'not_testable', 'reason': 'no rank observations; empty or failed collection',
+                'streams': [], 'changes': []}
     usable = [x for x in results if x['status'] == 'ok']
     if len(results) == 1:
         return dict(results[0], streams=results)
