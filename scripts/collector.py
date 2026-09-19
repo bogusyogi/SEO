@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from runtime_setup import python_executable
 from site_policy import load, authorize, property_for
-from measurement_scope import site_hosts, owned_url
+from measurement_scope import site_hosts, owned_url, measurement_context
 
 SCRIPTS = Path(__file__).resolve().parent
 
@@ -110,6 +110,8 @@ def collect(root, lane: str, *, days: int = 28, max_pages: int = 100,
                     if str(data.get('property') or '').removeprefix('properties/') != expected:
                         raise ValueError('collector property response mismatch')
                 bad = data.get('error') or data.get('pages_error') or data.get('status') in {'fail', 'failed', 'partial', 'error'}
+                if lane in {'gsc', 'gsc_ranks'}:
+                    bad = bad or data.get('coverage', {}).get('hit_client_cap') is True
                 if lane == 'audit':
                     usable = any(x.get('status') == 200 for x in data.get('pages', {}).values())
                     bad = bad or not usable or data.get('coverage', {}).get('collection_failures', 0) > 0
@@ -121,22 +123,24 @@ def collect(root, lane: str, *, days: int = 28, max_pages: int = 100,
         state, error = 'failed', type(exc).__name__
     return {'schema_version': 2, 'site': site['domain'], 'lane': lane,
             'collected_at': datetime.now(timezone.utc).isoformat(), 'status': state, 'error': error,
-            'data': data, 'hostname_scope': site_hosts(site),
+            'data': data, 'hostname_scope': site_hosts(site), 'collection_route': 'standalone_direct',
             'scope': 'owned site; unavailable data is not zero'}
 
 
 def persist_observations(root, envelope, snapshot):
     """Wire collected evidence into the same history consumed by reports and CLI."""
     lane, data = envelope['lane'], envelope.get('data') or {}
-    if lane == 'gsc_ranks' and envelope.get('status') == 'ok':
+    if lane == 'gsc_ranks':
         from rank_tracker import ingest
         rows = [dict(row, market=row.get('country') or 'not-reported', language='not-reported',
                      device=row.get('device') or 'all', observed_url=None)
-                for row in data.get('rows', []) if row.get('position', 0) >= 1]
+                for row in data.get('rows', []) if envelope.get('status') == 'ok' and
+                isinstance(row.get('position'), (int, float)) and row['position'] >= 1]
         # Search Console does not report query language or a single precise SERP position.
         path = ingest(root, rows, {'provider': 'google_gsc', 'observation_type': 'gsc_average_position',
             'market': 'not-reported', 'language': 'not-reported', 'collected_at': envelope['collected_at'],
-            'snapshot': snapshot})
+            'snapshot': snapshot, 'status': envelope.get('status', 'failed'),
+            'measurement': measurement_context(envelope), 'coverage': data.get('coverage')})
         return {'rank_snapshot': str(path)}
     if lane == 'serp' and data.get('rows'):
         from rank_tracker import ingest
