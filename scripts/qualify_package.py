@@ -37,6 +37,13 @@ def validate(root):
             assert not any(name.lower().startswith('legion') for name in names), path.name
 
 
+def validate_discovery(inventory, site):
+    """Discovery returns canonical paths, including through platform temp aliases."""
+    expected = [str(Path(site).resolve())]
+    assert inventory.get('status') == 'ok', inventory
+    assert inventory.get('roots') == expected, (inventory.get('roots'), expected)
+
+
 def main():
     with tempfile.TemporaryDirectory() as directory:
         temp = Path(directory)
@@ -68,7 +75,7 @@ def main():
         for command in ('cms', 'deliver', 'serp', 'content', 'portfolio', 'workflow', 'publication', 'media'):
             run(command, '--help')
         inventory = json.loads(run('portfolio', 'discover', '--root', str(site)))
-        assert inventory['status'] == 'ok' and inventory['roots'] == [str(site)]
+        validate_discovery(inventory, site)
         workflow = json.loads(run('workflow', '--root', str(site), 'tick'))
         assert workflow['status'] == 'disabled'
         assert (site / '.seo/site.yaml').exists() and not (site / '.legion').exists()
