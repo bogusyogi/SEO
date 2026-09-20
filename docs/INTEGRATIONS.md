@@ -48,65 +48,22 @@ manager, or invoke `tick` using cron/Task Scheduler. No production service is in
 or activated by the package. `--max-ticks 1` permits a bounded service smoke test. The
 runner does not autonomously invent article facts, approved changes, credentials or policy.
 
-## SellRight blog workflow
+## Backend-provider boundary
 
-The concrete client targets SellRight's blog API, not a guessed Vendure endpoint. Configure
-an explicit origin, store slug, store ID and existing bearer-session token environment name:
+SellRight is a backend provider used by RightApps/RightSites. It is not an SEO
+publishing interface. SEO must not call SellRight APIs to write content, metadata,
+media or any other data, directly or through a host tool. Its server concurrency,
+machine credentials and asset APIs are not SEO prerequisites or an integration backlog.
+Use each site's verified source/content ownership and existing publishing/deployment
+workflow. Do not infer that path from a provider dependency, repository name or README.
+The sites' normal use of their backend provider is unchanged.
 
-```json
-{"cms":{"provider":"sellright","api_origin":"https://api.example.com",
- "store_slug":"example","store_id":"actual-store-id","token_env":"SEO_CMS_TOKEN"}}
-```
-
-Merge that object into the site's existing configuration. The client verifies the exact
-store ID/slug in `/v1/admin/me`, sends `x-store-slug` on every request and verifies the
-post/store identity on readback. It never falls back to the session's first store.
-It does not log in, obtain or renew tokens, disable CSRF or request broader permissions.
-
-An approved site policy needs `draft`, `publish` and, for rollback, `rollback` among its
-allowed actions. New posts must first be drafts with explicit slug, real author, title,
-body and reviewed-source evidence. A creation request cannot conceal immediate publication.
-
-```sh
-python /opt/SEO/seo.py cms --root /sites/example list
-python /opt/SEO/seo.py cms --root /sites/example prepare guide-1 --body /tmp/reviewed-post.json --evidence reviewed-source-brief
-python /opt/SEO/seo.py cms --root /sites/example approve guide-1 --digest EXACT_REQUEST_SHA256 --approval-ref operator-or-delegated-host
-python /opt/SEO/seo.py cms --root /sites/example apply guide-1
-```
-
-Preparation is read-only against the CMS and freezes the desired body and existing-post
-baseline. Approval binds action ID, payload, target, site and current configuration.
-Changing them requires a fresh proposal. Repeating a successful apply returns its receipt,
-not another post. A timeout/process death after the write-ahead marker is `uncertain`,
-never automatically retried. The CMS currently changes colliding slugs; an unexpected
-slug is also uncertain and is not "cleaned up" through automatic deletion.
-
-### Existing posts, publication and rollback
-
-PATCH is a real API mutation, but this API currently has no atomic conditional-write
-contract. Existing-post changes therefore default to blocked. An operator who accepts
-the remaining concurrent-edit race can explicitly set `cms.allow_non_atomic_updates`
-to `true` **before preparation**. A preflight baseline hash catches changes already
-visible at that point; it cannot prevent another editor racing the subsequent PATCH.
-Fully unattended concurrent publishing requires a server-side conditional-write contract
-or an externally enforced exclusive writer. Do not describe this client as atomic.
-
-With that limitation deliberately accepted, create an update proposal using `--post-id`
-and a JSON body such as `{"isPublished":true}`. Approve and apply its exact digest. A
-successful receipt means matching CMS readback, not a verified public page or SEO uplift.
-
-```sh
-python /opt/SEO/seo.py cms --root /sites/example verify publish-1 --url https://example.com/blog/useful-guide --expected-text 'An exact sentence in the approved content'
-python /opt/SEO/seo.py cms --root /sites/example reconcile guide-1 --post-id IDENTIFIED_POST_ID
-python /opt/SEO/seo.py cms --root /sites/example rollback update-1 restore-1 --evidence approved-rollback
-```
-
-`reconcile` reads and records whether an identified post matches; it does not invent
-causation or authorize a retry. Rollback creates a new approval-required proposal and
-refuses to overwrite subsequent changes. Newly created drafts are retained/unpublished,
-never deleted. Public verification is a bounded HTTP assertion; rendered DOM, indexing
-and later business outcomes are separate. Media upload/featured-image handling is not
-implemented by this blog adapter; use the site's qualified media workflow.
+The earlier direct client and `seo.py cms` command have been removed. Legacy `cms`
+configuration is ignored; it does not activate publication and does not block first-party
+reads or portfolio discovery. Historical CMS action records remain inspectable as local
+evidence, but cannot be approved, executed, retried or returned as current execution
+success. Do not relabel old actions as repository or delivery actions. No historical
+receipts, site configuration or credentials are automatically deleted or migrated.
 
 ## SMTP report delivery
 
@@ -188,14 +145,9 @@ not establish that any particular domain uses that route. `agent_host.py` is a b
 JSON handoff to an existing operator-approved executable, not a model installation or
 an OS sandbox. Semantic source and preview review remain host responsibilities.
 
-On September 20, 2026 the SellRight server route was inspected at
-`bogusyogi/rightsites` commit `818f054044229ea96fe47eca85d8576261a982e7`,
-`packages/api/src/routes/admin-content.ts` (blob `55948e8354057201d2edca15afc96f799b553b19`).
-It still selects then unconditionally patches posts and does not expose an atomic
-version precondition or server-idempotent creation contract. That server was not
-modified by this SEO milestone. CMS machine-credential lifecycle and asset upload
-also remain separate integration work. Do not enable non-atomic writes and label
-these gaps resolved.
+The prior backend inspection was mistaken for publishing-route evidence. That
+architectural assumption is withdrawn. This package does not need a SellRight server
+change; deployment ownership must be established at the site/application boundary.
 
 Primary API contracts: GitHub REST [Git trees](https://docs.github.com/en/rest/git/trees),
 [pull-request merge](https://docs.github.com/en/rest/pulls/pulls#merge-a-pull-request),

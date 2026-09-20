@@ -15,7 +15,6 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'scripts'))
 import collector
 import content_queue
-import cms_sellright as cms
 import remote_actions as actions
 import report_delivery as delivery
 import reporting
@@ -37,45 +36,10 @@ def setup(root):
         gsc_property='sc-domain:example.com', ga4_property='123', bing_site='https://example.com/')
     site['policy'] = {'mode': 'approved', 'approval_ref': 'operator-test',
         'allowed_actions': ['draft', 'publish', 'metadata', 'rollback', 'deliver'], 'write_prefixes': ['content', 'pages']}
-    site['cms'] = {'provider': 'sellright', 'api_origin': 'https://api.example.com',
-        'store_slug': 'example', 'store_id': 'store-1', 'token_env': 'TEST_CMS_TOKEN'}
     site['delivery'] = {'provider': 'smtp', 'host': 'smtp.example.com', 'port': 465, 'security': 'ssl',
         'from': 'report@example.com', 'to': ['owner@example.com']}
     save_site(site, root)
     return site
-
-
-class FakeCMS:
-    def __init__(self):
-        self.posts, self.calls = {}, []
-        self.store_id, self.role = 'store-1', 'owner'
-        self.fail_after_write = False
-        self.create_suffix = False
-
-    def __call__(self, origin, method, path, *, headers=None, payload=None):
-        assert origin == 'https://api.example.com'
-        assert headers['x-store-slug'] == 'example'
-        assert headers['Authorization'] == 'Bearer private-test-token'
-        self.calls.append((method, path, copy.deepcopy(payload)))
-        if path == '/v1/admin/me':
-            return {'stores': [{'storeId': self.store_id, 'slug': 'example', 'role': self.role}]}
-        if path == '/v1/admin/blog':
-            if method == 'GET': return {'items': [{'id': key, 'slug': value['slug']} for key, value in self.posts.items()]}
-            assert method == 'POST'
-            pid = 'post-' + str(len(self.posts) + 1)
-            self.posts[pid] = {'id': pid, 'storeId': 'store-1', **copy.deepcopy(payload)}
-            if self.create_suffix: self.posts[pid]['slug'] += '-collision'
-            if self.fail_after_write: raise TimeoutError('credential-bearing response must not be logged')
-            return {'id': pid, 'slug': self.posts[pid]['slug']}
-        pid = path.rsplit('/', 1)[-1]
-        if method == 'GET': return copy.deepcopy(self.posts[pid])
-        assert method == 'PATCH'
-        self.posts[pid].update(copy.deepcopy(payload))
-        if self.fail_after_write: raise TimeoutError('network response lost')
-        return {'id': pid}
-
-    def writes(self):
-        return [call for call in self.calls if call[0] != 'GET']
 
 
 class IntegrationTests(unittest.TestCase):
@@ -83,15 +47,17 @@ class IntegrationTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = self.temp.name
         self.site = setup(self.root)
-        self.env = patch.dict(os.environ, {'TEST_CMS_TOKEN': 'private-test-token', 'DATAFORSEO_LOGIN': 'fixture', 'DATAFORSEO_PASSWORD': 'not-real'})
+        self.env = patch.dict(os.environ, {'DATAFORSEO_LOGIN': 'fixture', 'DATAFORSEO_PASSWORD': 'not-real'})
         self.env.start()
 
     def tearDown(self):
         self.env.stop(); self.temp.cleanup()
 
-    def prepare_cms(self, fake, action_id='new-post', body=None, post_id=None):
-        body = body or {'title': 'A useful guide', 'slug': 'useful-guide', 'body': 'Original evidence-backed text.', 'authorName': 'Verified author'}
-        result = cms.prepare(self.root, action_id, body, evidence='reviewed-source-brief', post_id=post_id, transport=fake)
+
+    def prepare_delivery(self, action_id='report'):
+        report = state_dir(self.root) / 'reports/test.md'
+        report.write_text('Reviewed report', encoding='utf-8')
+        result = delivery.prepare(self.root, action_id, report, 'operator')
         actions.approve(self.root, action_id, result['request_sha256'], 'operator:test')
         return result
 
@@ -203,80 +169,13 @@ class IntegrationTests(unittest.TestCase):
         with self.assertRaises(PermissionError): content_queue.apply(self.root, 'item')
         self.assertFalse((Path(self.root) / 'content/b.md').exists())
 
-    def test_cms_create_draft_readback_and_idempotent_repeat(self):
-        fake = FakeCMS(); self.prepare_cms(fake)
-        result = cms.apply(self.root, 'new-post', fake)
-        self.assertEqual(result['state'], 'succeeded')
-        self.assertFalse(result['receipt']['is_published'])
-        self.assertTrue(cms.apply(self.root, 'new-post', fake)['duplicate'])
-        self.assertEqual(len(fake.writes()), 1)
-
-    def test_cms_wrong_store_never_writes(self):
-        fake = FakeCMS(); fake.store_id = 'another-store'
-        with self.assertRaises(PermissionError): self.prepare_cms(fake)
-        self.assertFalse(fake.writes())
-
-    def test_cms_read_only_session_cannot_execute(self):
-        fake = FakeCMS(); self.prepare_cms(fake); fake.role = 'read_only'
-        with self.assertRaises(PermissionError): cms.apply(self.root, 'new-post', fake)
-        self.assertFalse(fake.writes())
-
-    def test_cms_timeout_after_create_never_retries(self):
-        fake = FakeCMS(); self.prepare_cms(fake); fake.fail_after_write = True
-        self.assertEqual(cms.apply(self.root, 'new-post', fake)['state'], 'uncertain')
-        self.assertEqual(cms.apply(self.root, 'new-post', fake)['state'], 'uncertain')
-        self.assertEqual(len(fake.writes()), 1)
-        result = cms.reconcile(self.root, 'new-post', 'post-1', fake)
-        self.assertTrue(result['matches_approved_fields']); self.assertFalse(result['automatic_retry'])
-        stored = actions.path_for(self.root, 'new-post').read_text()
-        self.assertNotIn('private-test-token', stored); self.assertNotIn('credential-bearing', stored)
-
-    def test_cms_slug_collision_stays_uncertain_without_deletion(self):
-        fake = FakeCMS(); self.prepare_cms(fake); fake.create_suffix = True
-        self.assertEqual(cms.apply(self.root, 'new-post', fake)['state'], 'uncertain')
-        self.assertEqual(len(fake.posts), 1)
-        self.assertEqual([x[0] for x in fake.writes()], ['POST'])
-
-    def test_cms_non_atomic_update_is_disabled_by_default(self):
-        fake = FakeCMS(); self.prepare_cms(fake); cms.apply(self.root, 'new-post', fake)
-        self.prepare_cms(fake, 'publish', {'isPublished': True}, 'post-1')
-        with self.assertRaises(PermissionError): cms.apply(self.root, 'publish', fake)
-        self.assertFalse(fake.posts['post-1']['isPublished'])
-
-    def test_cms_update_rejects_concurrent_remote_edit(self):
-        self.site['cms']['allow_non_atomic_updates'] = True; save_site(self.site, self.root)
-        fake = FakeCMS(); self.prepare_cms(fake); cms.apply(self.root, 'new-post', fake)
-        self.prepare_cms(fake, 'update', {'seoTitle': 'Approved title'}, 'post-1')
-        fake.posts['post-1']['title'] = 'Someone else edited this'
-        with self.assertRaises(ValueError): cms.apply(self.root, 'update', fake)
-        self.assertEqual(len(fake.writes()), 1)
-
-    def test_cms_approved_update_and_rollback_restore_fields(self):
-        self.site['cms']['allow_non_atomic_updates'] = True; save_site(self.site, self.root)
-        fake = FakeCMS(); self.prepare_cms(fake); cms.apply(self.root, 'new-post', fake)
-        self.prepare_cms(fake, 'update', {'seoTitle': 'New title'}, 'post-1')
-        self.assertEqual(cms.apply(self.root, 'update', fake)['state'], 'succeeded')
-        result = cms.prepare_rollback(self.root, 'update', 'restore', 'operator rollback', fake)
-        actions.approve(self.root, 'restore', result['request_sha256'], 'operator')
-        self.assertEqual(cms.apply(self.root, 'restore', fake)['state'], 'succeeded')
-        self.assertEqual(fake.posts['post-1']['seoTitle'], '')
-
-    def test_cms_publish_cannot_be_hidden_in_create(self):
-        fake = FakeCMS()
-        with self.assertRaises(ValueError): self.prepare_cms(fake, body={'title': 'X', 'body': 'Text', 'authorName': 'A', 'slug': 'x', 'isPublished': True})
-        self.assertFalse(fake.writes())
-
-    def test_cms_public_verification_rejects_other_site_redirect(self):
-        fake = FakeCMS(); self.prepare_cms(fake); cms.apply(self.root, 'new-post', fake)
-        with self.assertRaises(PermissionError):
-            cms.verify(self.root, 'new-post', 'https://example.com/blog/useful-guide', 'Original evidence-backed text.',
-                fetcher=lambda _: {'url': 'https://other.test/', 'status': 200, 'body': 'Original evidence-backed text.'})
 
     def test_remote_config_drift_invalidates_approval(self):
-        fake = FakeCMS(); self.prepare_cms(fake)
-        self.site['cms']['store_slug'] = 'other'; save_site(self.site, self.root)
-        with self.assertRaises(PermissionError): cms.apply(self.root, 'new-post', fake)
-        self.assertFalse(fake.writes())
+        self.prepare_delivery()
+        self.site['delivery']['host'] = 'other.example.com'; save_site(self.site, self.root)
+        sender = Mock()
+        with self.assertRaises(PermissionError): delivery.send(self.root, 'report', sender)
+        sender.assert_not_called()
 
     def test_smtp_proposal_freezes_report_content(self):
         report = state_dir(self.root) / 'reports/test.md'; report.write_text('Original report', encoding='utf-8')
@@ -386,27 +285,14 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual(delivery.deliver_latest(self.root)['state'], 'succeeded')
         self.assertEqual(actions.read(self.root, send.call_args.args[1])['state'], 'approved')
 
-    def test_process_death_after_write_marker_never_replays_cms(self):
-        fake = FakeCMS(); self.prepare_cms(fake)
+    def test_process_death_after_write_marker_never_replays_delivery(self):
+        self.prepare_delivery()
         with self.assertRaises(SystemExit):
-            actions.execute(self.root, 'new-post', 'cms', Mock(side_effect=SystemExit('crash')))
+            actions.execute(self.root, 'report', 'delivery', Mock(side_effect=SystemExit('crash')))
         sender = Mock()
-        result = actions.execute(self.root, 'new-post', 'cms', sender)
+        result = actions.execute(self.root, 'report', 'delivery', sender)
         self.assertEqual(result['state'], 'uncertain'); sender.assert_not_called()
 
-    def test_cms_rollback_source_cannot_be_retargeted(self):
-        fake = FakeCMS(); self.prepare_cms(fake); cms.apply(self.root, 'new-post', fake)
-        path = actions.path_for(self.root, 'new-post'); record = actions.read(self.root, 'new-post')
-        record['site'] = 'other.test'; atomic_json(path, record)
-        with self.assertRaises(PermissionError): cms.prepare_rollback(self.root, 'new-post', 'rollback', 'operator', fake)
-
-    def test_cms_publish_verification_uses_approved_baseline_content(self):
-        self.site['cms']['allow_non_atomic_updates'] = True; save_site(self.site, self.root)
-        fake = FakeCMS(); self.prepare_cms(fake); cms.apply(self.root, 'new-post', fake)
-        self.prepare_cms(fake, 'publish', {'isPublished':True}, 'post-1'); cms.apply(self.root, 'publish', fake)
-        result = cms.verify(self.root, 'publish', 'https://example.com/blog/useful-guide', 'Original evidence-backed text.',
-            fetcher=lambda url: {'url':url,'status':200,'body':'Original evidence-backed text.'})
-        self.assertTrue(result['passed'])
 
     def test_authenticated_http_does_not_redirect_tokens(self):
         response = Mock(status=302); response.read.return_value = b'{"error":"redirect"}'
@@ -437,11 +323,12 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(sorted(x['position_improvement'] for x in result['changes']),[1,2])
 
     def test_renamed_remote_action_does_not_reuse_approval(self):
-        fake = FakeCMS(); self.prepare_cms(fake)
-        row = actions.read(self.root, 'new-post'); row['id'] = 'another'
+        self.prepare_delivery()
+        row = actions.read(self.root, 'report'); row['id'] = 'another'
         atomic_json(actions.path_for(self.root, 'another'), row)
-        with self.assertRaises(PermissionError): cms.apply(self.root, 'another', fake)
-        self.assertFalse(fake.writes())
+        sender = Mock()
+        with self.assertRaises(PermissionError): delivery.send(self.root, 'another', sender)
+        sender.assert_not_called()
 
     def test_changed_measurement_window_length_is_not_comparable(self):
         first = {'site':'example.com','lane':'gsc','status':'ok','data':{'date_range':{'start':'2026-01-01','end':'2026-01-07'},'totals':{'clicks':7}}}
@@ -461,7 +348,7 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual(mcp_server.call('seo_backlink_changes', {'root':self.root})['status'],'ok')
 
     def test_new_cli_commands_work_from_unrelated_directory(self):
-        for command in ('cms', 'deliver', 'serp'):
+        for command in ('deliver', 'serp'):
             result = subprocess.run([sys.executable, str(ROOT / 'seo.py'), command, '--help'], cwd=self.root, capture_output=True, encoding='utf-8')
             self.assertEqual(result.returncode, 0, result.stderr)
 

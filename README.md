@@ -11,8 +11,8 @@ traffic, period-level users, key events and revenue; Bing reads and paginated pe
 backlinks; provider-scoped rank/backlink snapshot comparisons; site policy; scheduled
 read jobs with durable retries; evidence-based reports; reviewed repository-file changes
 with idempotency, deployed-text verification and conflict-safe rollback. Site-scoped
-GSC rank histories, multi-page Bing backlinks, exact-approved SellRight blog operations
-and TLS SMTP report delivery use the same independent runtime. Controlled DataForSEO
+GSC rank histories, multi-page Bing backlinks and TLS SMTP report delivery use the
+same independent runtime. Controlled DataForSEO
 SERPs are an optional explicit-budget lane, not a requirement.
 
 Optional restored Banana image helpers and HTML/PDF reporting are included. Unlighthouse
@@ -32,8 +32,10 @@ decisions, not unrelated sites or independently verifiable technical work.
 
 Start with [portfolio workflow](docs/PORTFOLIO-WORKFLOW.md). Host execution, standing
 approval, repository submission and production merge are independently configured and
-off by default. The existing SellRight server-concurrency limitation remains separate;
-a GitHub publication receipt is not proof that all CMS routes are qualified.
+off by default. SellRight is a backend provider used by RightApps/RightSites, not
+an SEO publishing API. Direct SellRight writes are prohibited, and the old backend
+adapter has been removed. Site content changes must use the site's verified ownership
+and normal publishing/deployment route; no SellRight development is an SEO prerequisite.
 
 ## Quick start
 
@@ -95,7 +97,7 @@ python scripts/qualify_package.py  # Tests committed HEAD as a clean archive
 ```
 
 Tests cover deterministic and mocked integration behavior. Live-provider access,
-live CMS/deployment qualification, scheduler activation and search outcomes are
+live deployment qualification, scheduler activation and search outcomes are
 separate qualification. This is not a claim that every site is already on autopilot.
 
 Origin: extracted from `Orthic-Labs/legion` at
@@ -103,6 +105,6 @@ Origin: extracted from `Orthic-Labs/legion` at
 in [LICENSE](LICENSE); inherited third-party components keep their licenses. See
 [notices](docs/THIRD_PARTY_NOTICES.md) and [donor review](docs/DONOR-REVIEW.md).
 
-See [operational integration](docs/INTEGRATIONS.md) for the CMS, SMTP, SERP and history
+See [operational integration](docs/INTEGRATIONS.md) for the publication, SMTP, SERP and history
 contracts, and [PR reconciliation](docs/RECONCILIATION-2026-09-17.md) for the disposition
 of the two overlapping repair branches. No companion framework is required.

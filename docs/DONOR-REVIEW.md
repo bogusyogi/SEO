@@ -46,8 +46,11 @@ runtime. API/protocol contracts consulted:
 - DataForSEO Live Advanced: https://docs.dataforseo.com/v3/serp-se-type-live-advanced/
 - Official MCP Python clients: https://py.sdk.modelcontextprotocol.io/client/transports/
 
-SellRight's authenticated blog contract was inspected directly before writing its client.
-No private server implementation or credentials are copied into this package. Optional
+SellRight's authenticated blog contract was inspected during the earlier repair.
+The resulting direct client was based on a mistaken publishing-route assumption and
+has been removed. SellRight is a backend provider for RightApps/RightSites, not an
+SEO write API or a prerequisite for this project. No private server implementation
+or credentials are copied into this package. Optional
 SDK qualification covers supported MCP v1/v2 client branches without making either a
 core runtime dependency. This does not broaden the earlier donor review into an exhaustive
 review of every upstream file.

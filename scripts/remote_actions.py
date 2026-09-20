@@ -30,14 +30,17 @@ def fingerprint(row):
 def action_for(kind, payload):
     if kind == 'repository':
         return 'merge' if payload.get('operation') == 'merge' else 'deploy'
-    return 'publish' if kind == 'cms' else 'deliver'
+    if kind == 'delivery':
+        return 'deliver'
+    # Legacy CMS receipts stay readable, but no policy can reactivate the removed route.
+    raise ValueError('unsupported remote action kind; only repository and delivery are supported')
 
 
 def propose(root, action_id, kind, payload, evidence):
     site = load(root)
-    if kind not in {'cms', 'delivery', 'repository'} or not evidence:
+    if kind not in {'delivery', 'repository'} or not evidence:
         raise ValueError('supported kind and source/review evidence required')
-    authorize(site, 'draft' if kind == 'cms' else action_for(kind, payload))
+    authorize(site, action_for(kind, payload))
     with transaction_lock(state_dir(root) / 'remote-actions'):
         path = path_for(root, action_id)
         if path.exists():

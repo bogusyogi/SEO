@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def validate(root):
+    assert not (root / 'scripts/cms_sellright.py').exists(), 'direct backend adapter must not ship'
     versions = []
     for filename in ('.claude-plugin/plugin.json', '.codex-plugin/plugin.json'):
         manifest = json.loads((root / filename).read_text(encoding='utf-8'))
@@ -27,7 +28,7 @@ def validate(root):
     assert len(set(versions)) == 1
     for filename in ('seo.py', 'SKILL.md', 'AGENTS.md', 'docs/THIRD_PARTY_NOTICES.md', 'LICENSE',
                      'extensions/banana/scripts/generate.py', 'pdf/google-seo-reference.md',
-                     'scripts/cms_sellright.py', 'scripts/report_delivery.py', 'scripts/serp_collect.py',
+                     'scripts/report_delivery.py', 'scripts/serp_collect.py',
                      'scripts/seo_workflow.py', 'scripts/portfolio.py', 'scripts/github_publication.py',
                      'scripts/media_assets.py', 'scripts/public_verify.py', 'scripts/outcome_jobs.py', 'scripts/agent_host.py'):
         assert (root / filename).is_file(), filename
@@ -72,8 +73,9 @@ def main():
         result = json.loads(run('run', '--root', str(site), 'tick', code=2))
         assert result['status'] == 'not_configured'
         run('closure', '--json')
-        for command in ('cms', 'deliver', 'serp', 'content', 'portfolio', 'workflow', 'publication', 'media'):
+        for command in ('deliver', 'serp', 'content', 'portfolio', 'workflow', 'publication', 'media'):
             run(command, '--help')
+        run('cms', '--help', code=2)  # Old installations must not expose a backend write route.
         inventory = json.loads(run('portfolio', 'discover', '--root', str(site)))
         validate_discovery(inventory, site)
         workflow = json.loads(run('workflow', '--root', str(site), 'tick'))

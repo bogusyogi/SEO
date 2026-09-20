@@ -225,9 +225,10 @@ recovery, with simulated provider/GitHub/HTTP boundaries. Archived-package smoke
 no credentials, SDKs or Legion. This does not qualify a live agent host, website,
 analytics tag, production pipeline or search outcome.
 
-SellRight is a separate existing adapter. Its currently inspected server still lacks
-atomic conditional blog updates and server-idempotent creation. This milestone does
-not add server machine credentials, SellRight media upload or an enforced exclusive
-writer. Non-atomic writes remain disabled by default; the repository route does not
-claim to fix that server race. Other CMS adapters require actual site contracts,
-not a pre-emptive universal CMS implementation.
+SellRight is a backend provider used by RightApps/RightSites, not an SEO publishing
+API. Direct SellRight writes are prohibited, including through a host tool. The
+previous adapter and command have been removed; server concurrency, machine tokens
+and backend media upload are not remaining SEO work. Old CMS action receipts remain
+readable but cannot execute. Existing site-provider usage is unchanged. Discover each
+site's actual source/content ownership and normal deployment route rather than inferring
+it from a backend integration or repository name.

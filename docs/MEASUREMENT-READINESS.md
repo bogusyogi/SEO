@@ -82,9 +82,10 @@ or host-installation test. Private account details and samples do not belong in
 this public repository.
 
 No publication/media/deployment/recovery qualification is claimed by this
-milestone. In particular, the SellRight atomic-update requirement, machine-token
-lifecycle and actual media wiring are unchanged. Do not enable non-atomic writes
-to bypass those blockers.
+milestone. The previous SellRight publication assumption was withdrawn: SellRight
+is a backend provider for RightApps/RightSites and direct API writes are prohibited.
+Its token, concurrency and media APIs are not SEO prerequisites. Qualify the site's
+actual source/content and deployment route instead.
 
 ## First-party contract reference
 
