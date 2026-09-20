@@ -44,6 +44,13 @@ asking for known facts. Never silently substitute a global Google property.
   relabel first-party average position as a controlled SERP rank.
 - AI search: `references/ai-search-2026.md`, `geo.md`, `scripts/ai_visibility_import.py`.
   Exports, citations, impressions, referrals and prompt samples remain distinct.
+- Portfolio inventory and resumable execution: `seo.py portfolio`, `seo.py workflow`
+  and `docs/PORTFOLIO-WORKFLOW.md`. Use the existing intervention ledger and queue;
+  do not invent another framework or restrict the system to one pilot domain.
+- Repository publication/media: `seo.py publication`, `seo.py media`; exact-reviewed
+  page-plus-assets PR, separately authorized merge, exact deployment receipt, public
+  HTML/media verification and scoped reverse PR. Source/preview review remains the
+  host's responsibility; absent deployment receipts are not a pass.
 - Recurring collection: `scripts/seo_runner.py`; intervention bookkeeping:
   `scripts/search_ops.py`; `references/operations.md` and `docs/OPERATIONS.md`.
 - Images: optional restored `extensions/banana/scripts/`; host-native image tools

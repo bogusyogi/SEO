@@ -27,7 +27,9 @@ def validate(root):
     assert len(set(versions)) == 1
     for filename in ('seo.py', 'SKILL.md', 'AGENTS.md', 'docs/THIRD_PARTY_NOTICES.md', 'LICENSE',
                      'extensions/banana/scripts/generate.py', 'pdf/google-seo-reference.md',
-                     'scripts/cms_sellright.py', 'scripts/report_delivery.py', 'scripts/serp_collect.py'):
+                     'scripts/cms_sellright.py', 'scripts/report_delivery.py', 'scripts/serp_collect.py',
+                     'scripts/seo_workflow.py', 'scripts/portfolio.py', 'scripts/github_publication.py',
+                     'scripts/media_assets.py', 'scripts/public_verify.py', 'scripts/outcome_jobs.py', 'scripts/agent_host.py'):
         assert (root / filename).is_file(), filename
     for path in (root / 'scripts').glob('*.py'):
         for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
@@ -63,8 +65,12 @@ def main():
         result = json.loads(run('run', '--root', str(site), 'tick', code=2))
         assert result['status'] == 'not_configured'
         run('closure', '--json')
-        for command in ('cms', 'deliver', 'serp', 'content'):
+        for command in ('cms', 'deliver', 'serp', 'content', 'portfolio', 'workflow', 'publication', 'media'):
             run(command, '--help')
+        inventory = json.loads(run('portfolio', 'discover', '--root', str(site)))
+        assert inventory['status'] == 'ok' and inventory['roots'] == [str(site)]
+        workflow = json.loads(run('workflow', '--root', str(site), 'tick'))
+        assert workflow['status'] == 'disabled'
         assert (site / '.seo/site.yaml').exists() and not (site / '.legion').exists()
         assert not (installed / '.seo').exists()
     print(json.dumps({'status': 'pass', 'archive': 'HEAD', 'legion_required': False,

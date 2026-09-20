@@ -173,3 +173,32 @@ cannot invoke this paid lane. Unknown/unsupported backlink providers remain opti
 Official contracts: Google Analytics FilterExpression and DataForSEO Live Advanced SERP
 API documentation were consulted on 2026-09-17. Provider account smoke tests and real billing
 were not performed by writing these adapters.
+
+## Portfolio host and GitHub-backed site route
+
+The [portfolio workflow](PORTFOLIO-WORKFLOW.md) connects existing mechanisms without a
+Legion dependency. `github_publication.py` uses GitHub Git/PR/Deployment APIs for an
+exact-approved page plus immutable media assets. Branch/PR publication, separately
+approved merge, exact-commit deployment and public HTML/image verification are separate
+receipts. Recovery creates a scoped reverse PR rather than resetting unrelated work.
+
+This route requires an actual repository identity, base branch, named checks and an
+existing deployment pipeline emitting GitHub Deployment records. Its presence does
+not establish that any particular domain uses that route. `agent_host.py` is a bounded
+JSON handoff to an existing operator-approved executable, not a model installation or
+an OS sandbox. Semantic source and preview review remain host responsibilities.
+
+On September 20, 2026 the SellRight server route was inspected at
+`bogusyogi/rightsites` commit `818f054044229ea96fe47eca85d8576261a982e7`,
+`packages/api/src/routes/admin-content.ts` (blob `55948e8354057201d2edca15afc96f799b553b19`).
+It still selects then unconditionally patches posts and does not expose an atomic
+version precondition or server-idempotent creation contract. That server was not
+modified by this SEO milestone. CMS machine-credential lifecycle and asset upload
+also remain separate integration work. Do not enable non-atomic writes and label
+these gaps resolved.
+
+Primary API contracts: GitHub REST [Git trees](https://docs.github.com/en/rest/git/trees),
+[pull-request merge](https://docs.github.com/en/rest/pulls/pulls#merge-a-pull-request),
+[deployments](https://docs.github.com/en/rest/deployments/deployments), and Google's
+[Search Analytics query](https://developers.google.com/webmaster-tools/v1/searchanalytics/query).
+No production API or provider write was used to qualify these code paths.

@@ -124,3 +124,13 @@ Neither tests nor source-file counts certify search-ranking or revenue improveme
 
 For current schedule examples, foreground service operation, CMS approval/rollback,
 SMTP delivery, measurement scoping, and optional paid collection, see [INTEGRATIONS.md](INTEGRATIONS.md).
+
+## Resumable portfolio maintenance
+
+The collection runner now optionally calls the shared host-executed workflow after
+its bounded read jobs. Enable it per site; no global switch weakens other site policies.
+The workflow reuses `search_ops` interventions, the local queue and `remote_actions`.
+See [portfolio workflow](PORTFOLIO-WORKFLOW.md) for discover/status, host JSON handoff,
+standing approval, repository/media publication, recovery and durable outcome jobs.
+The managed host/service, credentials and real site deployment route still require
+separate setup. A disabled workflow preserves the previous collection-only behavior.

@@ -24,9 +24,9 @@ def tick(root='.', *, now=None, run_collector=collect):
     now = float(time.time() if now is None else now)
     base = state_dir(root)
     path = base / 'schedule.json'
-    if not path.exists():
+    if not path.exists() and (site.get('workflow') or {}).get('enabled') is not True:
         return {'status': 'not_configured', 'reason': 'no schedule.json; no jobs run'}
-    schedule = json.loads(path.read_text(encoding='utf-8'))
+    schedule = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {'jobs': []}
     jobs = schedule.get('jobs', [])
     if len(jobs) > 20:
         raise ValueError('at most 20 jobs per site')
@@ -81,10 +81,23 @@ def tick(root='.', *, now=None, run_collector=collect):
                          x.get('status') == 'already_recorded' and x.get('last_status') != 'ok' for x in runs)
             report = {'status': 'partial' if failed else 'ok', 'site': site['domain'],
                       'recorded_at': datetime.fromtimestamp(now, timezone.utc).isoformat(), 'jobs': runs}
+            if (site.get('workflow') or {}).get('enabled') is True:
+                from seo_workflow import tick as workflow_tick
+                try:
+                    report['workflow'] = workflow_tick(root, now=datetime.fromtimestamp(now, timezone.utc))
+                except Exception as exc:
+                    report['workflow'] = {'status': 'partial', 'error': type(exc).__name__}
+                if report['workflow'].get('status') != 'ok':
+                    report['status'] = 'partial'
             atomic_json(base / 'reports/latest-run.json', report)
             analysis = analyze(root)
             atomic_json(base / 'reports/evidence-brief.json', analysis)
-            (base / 'reports/latest-run.md').write_text(render(site['domain'], analysis), encoding='utf-8')
+            text = render(site['domain'], analysis)
+            if report.get('workflow'):
+                text += '\n## Resumable site work\n\n'
+                for task in report['workflow'].get('tasks', []):
+                    text += f"{task['id']}: {task['stage']}; {task.get('blocker') or 'no blocker'}.\n"
+            (base / 'reports/latest-run.md').write_text(text, encoding='utf-8')
             if (site.get('delivery') or {}).get('auto_send_reports') is True:
                 from report_delivery import deliver_latest
                 try:
@@ -100,19 +113,27 @@ def tick(root='.', *, now=None, run_collector=collect):
 
 
 def portfolio(path):
+    from portfolio import roots_from, inventory
     config_path = Path(path).resolve()
-    config = json.loads(config_path.read_text(encoding='utf-8'))
-    roots = config.get('roots') or []
-    if not roots or len(roots) > 100:
-        raise ValueError('portfolio requires 1..100 explicit site roots')
     results = []
-    for root in roots:
-        site_root = (config_path.parent / root).resolve()
+    for site_root in roots_from(config_path):
         try:
             results.append(tick(site_root))
         except Exception as exc:
             results.append({'root': str(site_root), 'status': 'failed', 'error': type(exc).__name__})
-    return {'status': 'ok' if all(x.get('status') == 'ok' for x in results) else 'partial', 'sites': results}
+    result = {'status': 'ok' if all(x.get('status') == 'ok' for x in results) else 'partial',
+              'sites': results, 'readiness': inventory(config_path)}
+    atomic_json(config_path.parent / (config_path.stem + '.report.json'), result)
+    lines = ['# SEO portfolio operations', '', 'Per-site execution receipts; configuration is not live qualification.', '']
+    for site in result['readiness']['sites']:
+        lines.append(f"## {site.get('domain', site['root'])}")
+        lines.append('Policy: ' + site.get('policy_mode', 'unavailable') + '.')
+        for task in site.get('tasks', []):
+            lines.append(f"{task['id']}: {task['stage']}; {task.get('blocker') or 'no recorded blocker'}.")
+        if site.get('error'): lines.append('Blocked: ' + site['error'])
+        lines.append('')
+    (config_path.parent / (config_path.stem + '.report.md')).write_text('\n'.join(lines), encoding='utf-8')
+    return result
 
 
 def main():

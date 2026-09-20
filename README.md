@@ -20,6 +20,21 @@ and SEOmator can be invoked as separately installed scanners. Paid providers and
 agent frameworks are optional. No credential, live schedule, paid call, public post or
 site deployment is enabled by cloning/installing the package.
 
+## Portfolio maintenance
+
+`seo.py portfolio` discovers existing site workspaces and reports per-site readiness.
+`seo.py workflow` connects the existing intervention ledger, content queue and selected
+agent host into a resumable check/prepare/approve/apply/verify/follow-up loop. GitHub-backed
+sites can publish one page and its staged media in a reviewed PR, qualify the exact
+commit's deployment and prepare a scoped reverse PR. Later page-scoped GSC checks are
+actual durable jobs, not just suggested dates. Missing measurement blocks dependent
+decisions, not unrelated sites or independently verifiable technical work.
+
+Start with [portfolio workflow](docs/PORTFOLIO-WORKFLOW.md). Host execution, standing
+approval, repository submission and production merge are independently configured and
+off by default. The existing SellRight server-concurrency limitation remains separate;
+a GitHub publication receipt is not proof that all CMS routes are qualified.
+
 ## Quick start
 
 ```sh
