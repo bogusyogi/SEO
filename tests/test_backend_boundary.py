@@ -54,7 +54,8 @@ class BackendBoundaryTests(unittest.TestCase):
 
     def test_cms_cli_is_not_advertised(self):
         result = subprocess.run([sys.executable, str(ROOT/'seo.py'), '--help'],
-            capture_output=True, encoding='utf-8', cwd=self.root, timeout=10)
+            capture_output=True, encoding='utf-8', cwd=self.root, timeout=10,
+            env={**os.environ, 'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8'})
         self.assertEqual(result.returncode, 0)
         self.assertNotIn('cms_sellright', result.stdout)
         self.assertNotIn('  cms ', result.stdout)
@@ -63,7 +64,8 @@ class BackendBoundaryTests(unittest.TestCase):
     def test_old_cms_command_is_rejected_even_with_credentials(self):
         with patch.dict(os.environ, {'SEO_CMS_TOKEN': 'PRIVATE_SENTINEL'}):
             result = subprocess.run([sys.executable, str(ROOT/'seo.py'), 'cms', '--help'],
-                capture_output=True, encoding='utf-8', cwd=self.root, timeout=10)
+                capture_output=True, encoding='utf-8', cwd=self.root, timeout=10,
+                env={**os.environ, 'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8'})
         self.assertEqual(result.returncode, 2)
         self.assertIn('Unknown SEO command', result.stderr)
         self.assertNotIn('PRIVATE_SENTINEL', result.stdout + result.stderr)
