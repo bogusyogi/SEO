@@ -127,12 +127,14 @@ wired into scheduled collection or normalized to the measured-zero convention.
   falling back to `CrawlDate`. Bing's `/Date(â€¦)/` JSON date format is passed through
   unparsed — treat it as an opaque provider timestamp string, not a normalized ISO date.
 
-### Lane `gsc_appearance` — GSC Search Analytics, `searchAppearance,device,country` dimensions
+### Lane `gsc_appearance` — GSC Search Analytics, `searchAppearance` dimension
 
 Same underlying script (`gsc_query_v2.py`) and schema as `gsc`/`gsc_ranks` (schema_version 2,
-`rows[]`/`aggregate`/`coverage` as documented above), just a distinct dimension combination
-so a rich-result-driven view (AMP, review snippets, etc.) doesn't get overwritten by the
-`query,page` or `query,country,device` schedules. Storage: `.seo/gsc_appearance/*.json`.
+`rows[]`/`aggregate`/`coverage` as documented above). **Live-run finding:** the Search
+Analytics API rejects `searchAppearance` combined with any other dimension —
+`Cannot group by search appearance dimension together with another dimension` (HTTP 400) —
+so this lane queries `searchAppearance` alone, not `searchAppearance,device,country` as
+originally planned. Storage: `.seo/gsc_appearance/*.json`.
 
 ### Lane `gsc_inspect_bulk` — GSC URL Inspection API, automatic important-URL list
 

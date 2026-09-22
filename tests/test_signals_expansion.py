@@ -130,14 +130,14 @@ class GscAppearanceLaneTests(unittest.TestCase):
 
     def test_ok_appearance_dimensions_response(self):
         fixture = {'schema_version': 2, 'property': 'sc-domain:example.com', 'error': None,
-                   'dimensions': ['searchAppearance', 'device', 'country'],
-                   'rows': [{'searchAppearance': 'AMP_BLUE_LINK', 'device': 'MOBILE', 'country': 'usa',
+                   'dimensions': ['searchAppearance'],
+                   'rows': [{'searchAppearance': 'AMP_BLUE_LINK',
                              'clicks': 3, 'impressions': 50}],
                    'coverage': {'hit_client_cap': False}}
         with patch.object(collector, 'run_json', return_value=(fixture, 0)):
             result = collector.collect(self.root, 'gsc_appearance')
         self.assertEqual(result['status'], 'ok')
-        self.assertEqual(result['data']['dimensions'], ['searchAppearance', 'device', 'country'])
+        self.assertEqual(result['data']['dimensions'], ['searchAppearance'])
 
     def test_property_mismatch_is_rejected(self):
         fixture = {'property': 'sc-domain:other.com', 'rows': [], 'coverage': {}}

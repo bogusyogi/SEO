@@ -79,7 +79,10 @@ def collect(root, lane: str, *, days: int = 28, max_pages: int = 100,
                 if lane == 'gsc_ranks':
                     args += ['--dimensions', 'query,country,device']
                 elif lane == 'gsc_appearance':
-                    args += ['--dimensions', 'searchAppearance,device,country']
+                    # The Search Analytics API rejects grouping searchAppearance with any
+                    # other dimension ("Cannot group by search appearance dimension
+                    # together with another dimension") — it must be queried alone.
+                    args += ['--dimensions', 'searchAppearance']
             elif lane == 'ga4':
                 args = ['ga4_report.py', '--property', property_for(site, 'ga4'), '--days', str(days), '--json', *host_args]
             elif lane == 'bing':
