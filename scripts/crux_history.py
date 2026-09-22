@@ -187,7 +187,12 @@ def query_history(
             "good_percentages": good_pcts,
             "needs_improvement_percentages": ni_pcts,
             "poor_percentages": poor_pcts,
-            "latest_p75": p75s[-1] if p75s and p75s[-1] is not None else None,
+            "latest_p75": p75s[-1] if p75s else None,
+            "latest_observed_p75": next((value for value in reversed(p75s) if value is not None), None),
+            "latest_observed_period": (
+                result["collection_periods"][len(p75s) - 1 - next(i for i, value in enumerate(reversed(p75s)) if value is not None)]
+                if any(value is not None for value in p75s) and len(result["collection_periods"]) >= len(p75s) else None
+            ),
             "good_threshold": thresholds["good"],
             "poor_threshold": thresholds["poor"],
         }

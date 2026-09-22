@@ -265,7 +265,13 @@ def _performance(reports, domain):
         return None
     vitals = {'lab': {'lcp_ms': metric('largest-contentful-paint', ('lcp',)), 'cls': metric('cumulative-layout-shift', ('cls',)), 'tbt_ms': metric('total-blocking-time', ('tbt',))},
               'crux': {'lcp_ms': crux_metric('lcp_ms', ('lcp', 'largest_contentful_paint')), 'inp_ms': crux_metric('inp_ms', ('inp', 'interaction_to_next_paint')), 'cls': crux_metric('cls', ('cumulative_layout_shift',))}}
-    return {'status': 'ok' if not failed and values['performance'] is not None else 'failed', 'collected_at': stamp.isoformat(), 'scores': values, 'crux_status': _crux_status(obj), 'vitals': vitals}
+    history = []
+    for metric_name, unit in (('largest_contentful_paint', 'ms'), ('interaction_to_next_paint', 'ms'), ('cumulative_layout_shift', '')):
+        observation = _dict(_dict(crux.get('latest_observed_p75')).get(metric_name))
+        dates = _dict(observation.get('period'))
+        if _num(observation.get('value')) is not None and _stamp(dates.get('first'), True) != MIN_TIME and _stamp(dates.get('last'), True) != MIN_TIME:
+            history.append({'metric': metric_name, 'value': observation['value'], 'unit': unit, 'start': dates['first'], 'end': dates['last']})
+    return {'status': 'ok' if not failed and values['performance'] is not None else 'failed', 'collected_at': stamp.isoformat(), 'scores': values, 'crux_status': _crux_status(obj), 'vitals': vitals, 'crux_history': history, 'crux_collected_at': crux.get('collected_at') if _stamp(crux.get('collected_at')) != MIN_TIME else None}
 
 
 def _sanitize_detail(value, key='', depth=0):
