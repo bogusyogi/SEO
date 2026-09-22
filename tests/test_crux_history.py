@@ -1,10 +1,17 @@
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import crux_history
+try:
+    import requests
+except ImportError:
+    # Parsing fixtures do not require the optional live HTTP dependency.
+    with patch.dict(sys.modules, {'requests': Mock()}):
+        import crux_history
+else:
+    import crux_history
 
 
 class _Response:

@@ -281,7 +281,10 @@ def collect_site(root: str | Path, *, only: set[str] | None = None, skip_fresh: 
             return existing.get(name) or default
         if fresh(existing.get(name)):
             return existing[name]
-        return factory()
+        try:
+            return factory()
+        except Exception as exc:
+            return {**default, 'status': 'error', 'error': _error(exc)}
     gsc_default = {"status": "missing", "date_range": dates, "current": {}, "previous": {}, "daily": [], "devices": [], "countries": [], "pages": [], "query_changes": [], "coverage": {}}
     ga4_default = {"status": "missing", "date_range": None, "totals": {}, "daily": [], "pages": [], "devices": [], "countries": [], "currency": None, "time_zone": None, "event_arrival": "unknown"}
     gsc = run("gsc", lambda: _gsc(str(props.get("gsc") or site.get("gsc_property") or ""), dates), gsc_default) if (props.get("gsc") or site.get("gsc_property")) else gsc_default
