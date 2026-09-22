@@ -57,6 +57,9 @@ OAUTH_SCOPES = (
     "https://www.googleapis.com/auth/webmasters.readonly "
     "https://www.googleapis.com/auth/analytics.readonly"
 )
+# Opt-in write access (sitemap submission) for operators who explicitly authorize it.
+if os.environ.get("SEO_GSC_WRITE") == "1":
+    OAUTH_SCOPES = OAUTH_SCOPES.replace("webmasters.readonly", "webmasters")
 OAUTH_REDIRECT_URI = "http://localhost:8085"
 
 # Human-readable service names
