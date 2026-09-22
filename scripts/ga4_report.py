@@ -264,6 +264,56 @@ def organic_traffic_report(
     return result
 
 
+def all_channels_sanity_report(property_id: str, days: int = 7) -> dict:
+    """Undimensioned, unfiltered totals across every channel for the same window.
+
+    Purpose: distinguish "organic is genuinely zero" from "GA4 tagging/property is
+    broken and everything is zero" (measured-zero vs missing, applied to GA4).
+    No dimension and no channel filter are applied — this is a whole-property sanity
+    check, not a substitute for the organic report.
+    """
+    result = {"property": property_id, "report": "all_channels_sanity", "date_range": None,
+              "totals": {}, "error": None}
+    if days < 1 or days > 3650:
+        result["error"] = "days must be between 1 and 3650"
+        return result
+    client = _build_ga4_client()
+    if not client:
+        result["error"] = ("Could not build GA4 client. Ensure the service account has "
+                            "Viewer access in GA4 Admin > Property Access Management.")
+        return result
+    prop = _resolve_property(property_id)
+    start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    end_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    result["date_range"] = {"start": start_date, "end": end_date}
+    try:
+        request = RunReportRequest(
+            property=prop,
+            metrics=[Metric(name="sessions"), Metric(name="totalUsers"), Metric(name="eventCount")],
+            date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
+        )
+        response = client.run_report(request)
+        if response.rows:
+            row = response.rows[0]
+            result["totals"] = {"sessions": int(row.metric_values[0].value),
+                                 "total_users": int(row.metric_values[1].value),
+                                 "event_count": int(row.metric_values[2].value)}
+        else:
+            # A genuinely empty response for an undimensioned totals query is a measured
+            # zero across the whole property, not missing data.
+            result["totals"] = {"sessions": 0, "total_users": 0, "event_count": 0}
+        result["measured_zero"] = result["totals"] == {"sessions": 0, "total_users": 0, "event_count": 0}
+    except Exception as e:
+        error_str = str(e)
+        if "403" in error_str or "PERMISSION_DENIED" in error_str:
+            result["error"] = f"Permission denied for property '{property_id}'."
+        elif "404" in error_str or "NOT_FOUND" in error_str:
+            result["error"] = f"Property '{property_id}' not found."
+        else:
+            result["error"] = f"GA4 API error: {e}"
+    return result
+
+
 def top_pages_report(
     property_id: str,
     days: int = 28,
@@ -427,7 +477,7 @@ def main():
     parser.add_argument("--days", "-d", type=int, default=28, help="Number of days (default: 28)")
     parser.add_argument(
         "--report", "-r",
-        choices=["organic", "top-pages", "device", "country"],
+        choices=["organic", "top-pages", "device", "country", "sanity"],
         default="organic",
         help="Report type (default: organic)",
     )
@@ -460,6 +510,8 @@ def main():
         result = device_breakdown(prop, args.days, hostnames=args.host)
     elif args.report == "country":
         result = country_breakdown(prop, args.days, args.limit, hostnames=args.host)
+    elif args.report == "sanity":
+        result = all_channels_sanity_report(prop, args.days)
     else:
         result = organic_traffic_report(prop, args.days, args.limit, hostnames=args.host)
 

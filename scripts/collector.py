@@ -1,6 +1,7 @@
 """Bounded, explicitly site/host-scoped first-party collection. No paid dependency."""
 from __future__ import annotations
 import json
+import re
 import subprocess
 import tempfile
 import time
@@ -73,14 +74,23 @@ def collect(root, lane: str, *, days: int = 28, max_pages: int = 100,
     try:
         with tempfile.TemporaryDirectory(prefix='seo-collect-') as td:
             output = Path(td) / 'result.json'
-            if lane in {'gsc', 'gsc_ranks'}:
+            if lane in {'gsc', 'gsc_ranks', 'gsc_appearance'}:
                 args = ['gsc_query_v2.py', '--property', property_for(site, 'gsc'), '--days', str(days), *host_args]
                 if lane == 'gsc_ranks':
                     args += ['--dimensions', 'query,country,device']
+                elif lane == 'gsc_appearance':
+                    # The Search Analytics API rejects grouping searchAppearance with any
+                    # other dimension ("Cannot group by search appearance dimension
+                    # together with another dimension") — it must be queried alone.
+                    args += ['--dimensions', 'searchAppearance']
             elif lane == 'ga4':
                 args = ['ga4_report.py', '--property', property_for(site, 'ga4'), '--days', str(days), '--json', *host_args]
             elif lane == 'bing':
                 args = ['bing_webmaster.py', 'traffic', '--site', property_for(site, 'bing')]
+            elif lane == 'crux_history':
+                args = ['crux_history.py', url, '--origin', '--json']
+            elif lane == 'pagespeed':
+                args = ['pagespeed_check.py', url, '--strategy', 'mobile', '--json']
             elif lane == 'serp':
                 from serp_collect import collect as collect_serp
                 data = collect_serp(root)
@@ -91,6 +101,80 @@ def collect(root, lane: str, *, days: int = 28, max_pages: int = 100,
                 args = ['site_audit.py', '--url', url, '--max', str(max_pages), '--json', str(output)]
             elif lane == 'gsc_sitemaps':
                 args = ['gsc_query.py', 'sitemaps', '--property', property_for(site, 'gsc')]
+            elif lane == 'gsc_inspect_bulk':
+                gsc_prop = property_for(site, 'gsc')
+                hosts = set(site_hosts(site))
+                top_urls = []
+                try:
+                    top_raw, top_code = run_json(root, ['gsc_query_v2.py', '--property', gsc_prop,
+                        '--days', str(days), '--dimensions', 'page', '--limit', '1000', *host_args], timeout)
+                    if top_code == 0 and not top_raw.get('error'):
+                        ranked = sorted(top_raw.get('rows', []), key=lambda r: r.get('impressions', 0), reverse=True)
+                        top_urls = [r['page'] for r in ranked if r.get('page')]
+                except (subprocess.TimeoutExpired, ValueError, OSError):
+                    top_urls = []
+                sitemap_urls_found = []
+                try:
+                    import site_audit
+                    origin = url.rstrip('/')
+                    _, _, robots_txt, _ = site_audit.get(origin + '/robots.txt')
+                    found = set()
+                    for sm in site_audit.discover_sitemaps(origin, robots_txt):
+                        found |= site_audit.sitemap_urls(sm)
+                    sitemap_urls_found = sorted(found)
+                except Exception:
+                    sitemap_urls_found = []
+
+                import urllib.parse as _up
+
+                def in_scope(u):
+                    return _up.urlsplit(u).netloc.lower() in hosts
+                inspect_cap = site.get('inspect_max_urls', 20)
+                if type(inspect_cap) is not int or not 1 <= inspect_cap <= 2000:
+                    raise ValueError('inspect_max_urls must be 1..2000 (bounded by the GSC daily quota)')
+                ordered = list(dict.fromkeys([u for u in top_urls if in_scope(u)] +
+                                             [u for u in sitemap_urls_found if in_scope(u)]))
+                targets = ordered[:inspect_cap]
+                with tempfile.NamedTemporaryFile('w', suffix='.txt', delete=False, encoding='utf-8') as fh:
+                    fh.write('\n'.join(targets))
+                    batch_file = fh.name
+                try:
+                    if targets:
+                        raw, code = run_json(root, ['gsc_inspect.py', '--batch', batch_file,
+                            '--site-url', gsc_prop, '--delay', '1.0', '--json'],
+                            max(timeout, 30 + 10 * len(targets)))  # ~1s delay + API latency per URL
+                    else:
+                        raw, code = {'results': [], 'summary': {'pass': 0, 'fail': 0, 'neutral': 0, 'error': 0},
+                                     'error': None}, 0
+                finally:
+                    Path(batch_file).unlink(missing_ok=True)
+                data = {'property': gsc_prop, 'error': raw.get('error'), 'results': raw.get('results', []),
+                        'summary': raw.get('summary'),
+                        'candidate_sources': {'from_top_impression_pages': len(top_urls),
+                            'from_sitemap': len(sitemap_urls_found), 'considered_in_scope': len(ordered),
+                            'inspected': len(targets), 'inspect_max_urls': inspect_cap,
+                            'daily_quota_note': 'GSC URL Inspection allows 2000/day, 600/min per site'}}
+                bad_bulk = bool(raw.get('error')) or code != 0
+                state = 'partial' if bad_bulk else 'ok'
+                error = 'URL Inspection batch failed or incomplete' if bad_bulk else None
+                args = None
+            elif lane == 'sitemap_probe':
+                # Read-only: does the live site itself serve a sitemap? Never submits to GSC.
+                import site_audit
+                origin = url.rstrip('/')
+                robots_code, _, robots_txt, _ = site_audit.get(origin + '/robots.txt')
+                robots_sitemap_lines = [m.strip() for m in re.findall(
+                    r'^\s*Sitemap\s*:\s*(\S+)\s*$', robots_txt or '', re.I | re.M)]
+                probe_code, _, _, probe_headers = site_audit.get(origin + '/sitemap.xml')
+                data = {'url': origin, 'robots_status': robots_code,
+                        'robots_declares_sitemap': len(robots_sitemap_lines) > 0,
+                        'robots_sitemap_urls': robots_sitemap_lines,
+                        'default_sitemap_xml_status': probe_code,
+                        'default_sitemap_xml_reachable': probe_code == 200,
+                        'measured_zero': robots_code == 200 and not robots_sitemap_lines and probe_code != 200}
+                state = 'ok' if robots_code in (200, 404) else 'partial'
+                error = None if state == 'ok' else f'robots.txt fetch returned status {robots_code}'
+                args = None
             elif lane == 'bing_crawl':
                 prop = property_for(site, 'bing')
                 try:
@@ -143,13 +227,22 @@ def collect(root, lane: str, *, days: int = 28, max_pages: int = 100,
                 raise ValueError('unknown collector lane')
             if args:
                 data, code = run_json(root, args, timeout, output)
-                if lane in {'gsc', 'gsc_ranks', 'ga4'}:
+                if lane in {'gsc', 'gsc_ranks', 'gsc_appearance', 'ga4'}:
                     provider = 'gsc' if lane.startswith('gsc') else 'ga4'
                     expected = property_for(site, provider).removeprefix('properties/')
                     if str(data.get('property') or '').removeprefix('properties/') != expected:
                         raise ValueError('collector property response mismatch')
+                if lane == 'ga4':
+                    sanity, sanity_code = run_json(root,
+                        ['ga4_report.py', '--property', property_for(site, 'ga4'), '--report', 'sanity',
+                         '--days', '7', '--json'], timeout)
+                    expected_ga4 = property_for(site, 'ga4').removeprefix('properties/')
+                    if str(sanity.get('property') or '').removeprefix('properties/') == expected_ga4:
+                        data['all_channels_sanity'] = sanity
+                    else:
+                        data['all_channels_sanity'] = {'error': 'sanity property response mismatch'}
                 bad = data.get('error') or data.get('pages_error') or data.get('status') in {'fail', 'failed', 'partial', 'error'}
-                if lane in {'gsc', 'gsc_ranks'}:
+                if lane in {'gsc', 'gsc_ranks', 'gsc_appearance'}:
                     bad = bad or data.get('coverage', {}).get('hit_client_cap') is True
                 if lane == 'gsc_sitemaps' and property_for(site, 'gsc') != str(data.get('property') or ''):
                     raise ValueError('collector property response mismatch')

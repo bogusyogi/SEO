@@ -127,36 +127,135 @@ wired into scheduled collection or normalized to the measured-zero convention.
   falling back to `CrawlDate`. Bing's `/Date(â€¦)/` JSON date format is passed through
   unparsed — treat it as an opaque provider timestamp string, not a normalized ISO date.
 
+### Lane `gsc_appearance` — GSC Search Analytics, `searchAppearance` dimension
+
+Same underlying script (`gsc_query_v2.py`) and schema as `gsc`/`gsc_ranks` (schema_version 2,
+`rows[]`/`aggregate`/`coverage` as documented above). **Live-run finding:** the Search
+Analytics API rejects `searchAppearance` combined with any other dimension —
+`Cannot group by search appearance dimension together with another dimension` (HTTP 400) —
+so this lane queries `searchAppearance` alone, not `searchAppearance,device,country` as
+originally planned. Storage: `.seo/gsc_appearance/*.json`.
+
+### Lane `gsc_inspect_bulk` — GSC URL Inspection API, automatic important-URL list
+
+Bulk-inspects an automatically assembled "important URL" list instead of requiring an
+operator-curated one: the top-impression pages from a fresh `page`-dimension GSC query
+(sorted client-side by impressions, since the API does not sort by impressions) unioned
+with every URL discovered in the site's own sitemap(s) (via the same `site_audit`
+discovery functions the `audit`/`sitemap_probe` lanes use), filtered to the site's
+configured hostname scope, deduplicated, and capped by `inspect_max_urls` (site.yaml,
+default 20, hard bound 1..2000 — the API's own daily quota is 2000/site, 600/minute).
+
+- Storage: `.seo/gsc_inspect_bulk/<timestamp>.json`, `data` shape:
+
+```json
+{
+  "property": "sc-domain:example.com",
+  "error": "string or null",
+  "results": [ { "url": "...", "verdict": "PASS|FAIL|NEUTRAL|VERDICT_UNSPECIFIED",
+                 "index_status": {"coverage_state": "...", "indexing_state": "...", "page_fetch_state": "...", "..."},
+                 "canonical": {"google_canonical": "...", "user_canonical": "...", "match": true},
+                 "error": "string or null" } ],
+  "summary": {"pass": 0, "fail": 0, "neutral": 0, "error": 0},
+  "candidate_sources": {"from_top_impression_pages": 0, "from_sitemap": 0,
+                         "considered_in_scope": 0, "inspected": 0, "inspect_max_urls": 20,
+                         "daily_quota_note": "GSC URL Inspection allows 2000/day, 600/min per site"}
+}
+```
+
+- No writes/submissions. `results` empty with `error: null` and `candidate_sources.inspected: 0`
+  is a measured zero (no eligible URL found); a non-empty `error` is missing evidence.
+
+### Lane `sitemap_probe` — own-site sitemap reachability (no GSC dependency, never submits)
+
+Answers "does the live site itself serve a sitemap" independently of what is registered
+in GSC — for the 5 portfolio sites with zero GSC-registered sitemaps, this tells you
+whether a sitemap exists but was never submitted, versus none existing at all. Read-only:
+fetches `robots.txt` and probes `/sitemap.xml`; never calls any submission endpoint.
+
+- Storage: `.seo/sitemap_probe/*.json`, `data` shape:
+
+```json
+{
+  "url": "https://example.com",
+  "robots_status": 200,
+  "robots_declares_sitemap": false,
+  "robots_sitemap_urls": [],
+  "default_sitemap_xml_status": 404,
+  "default_sitemap_xml_reachable": false,
+  "measured_zero": true
+}
+```
+
+- `measured_zero: true` means robots.txt was fetched successfully (status 200) and
+  declared no `Sitemap:` line, and the default `/sitemap.xml` path returned a non-200 —
+  a genuine "no sitemap findable" result. A `robots_status` that isn't 200/404 marks the
+  envelope `partial` (fetch failed — missing, not zero).
+
+### GA4 lane — added `all_channels_sanity`
+
+`ga4_report.py` gained an `all_channels_sanity` report (`--report sanity`): an
+undimensioned, unfiltered 7-day totals query (`sessions`, `total_users`, `event_count`)
+across every channel, not just organic. `collector.py`'s `ga4` lane now runs it
+automatically alongside the existing organic report and stores it at
+`data.all_channels_sanity` in the same `.seo/ga4/*.json` envelope:
+
+```json
+"all_channels_sanity": {"property": "properties/123", "report": "all_channels_sanity",
+  "date_range": {"start": "...", "end": "..."}, "error": "string or null",
+  "totals": {"sessions": 0, "total_users": 0, "event_count": 0}, "measured_zero": true}
+```
+
+`measured_zero: true` (all three totals genuinely 0) means GA4 itself saw zero traffic
+of any kind in the window — property/tagging is likely broken. `all_channels_sanity`
+non-zero alongside a zero organic total in the main report means organic specifically is
+zero, not the whole property. Never infer "tagging is broken" from organic being zero alone.
+
+### `crux_history` / `pagespeed` lanes — now orchestrated (previously standalone-only)
+
+No schema change: `crux_history.py --origin --json` and `pagespeed_check.py <url>
+--strategy mobile --json` outputs are stored verbatim as `data` under
+`.seo/crux_history/*.json` and `.seo/pagespeed/*.json` respectively. Both already
+defined `error` at the top level, so they use the same generic ok/partial detection.
+`pagespeed` runs `mobile` strategy only by default (schedule cadence/quota reasons —
+add a second job entry with different args for `desktop`).
+
+### `site_audit` (own crawl) — hreflang, JSON-LD, robots-meta added to `parse()`
+
+Per-page `pages[url]` signals gained:
+- `robots_meta`: list of raw `<meta name="robots"|"googlebot">` content strings; `nofollow`: bool.
+- `hreflang`: `{lang code: href}` from `<link rel="alternate" hreflang=...>` tags.
+- `jsonld_types`: sorted list of `@type` values found in `application/ld+json` blocks;
+  `jsonld_invalid_blocks`: count of blocks that failed to parse as JSON (not silently
+  dropped); `jsonld_present`: true if any JSON-LD block (valid or invalid) exists.
+
+New `issues` keys: `missing_structured_data` (warning — no JSON-LD found), `invalid_jsonld`
+(error — a block failed to parse), `hreflang_points_offsite` (error — an hreflang alternate
+points to a different, unrelated host), `hreflang_missing_self_reference` (warning — a page
+declares hreflang alternates but not one pointing at itself, the standard self-reference
+requirement). These are mechanical signals, not a schema.org conformance or Google
+rich-result eligibility claim.
+
 ## Schedule wiring
 
-Both lanes are registered in `seo_runner.LANES` and `site_policy.READ_ACTIONS`, so they
-can be added to any site's `.seo/schedule.json` exactly like existing lanes, e.g.:
+All new lanes are registered in `seo_runner.LANES` and `site_policy.READ_ACTIONS`, so any
+of them can be added to a site's `.seo/schedule.json` exactly like existing lanes, e.g.:
 
 ```json
 {"jobs":[
   {"lane":"gsc_sitemaps","interval_seconds":604800},
-  {"lane":"bing_crawl","interval_seconds":604800}
+  {"lane":"bing_crawl","interval_seconds":604800},
+  {"lane":"gsc_appearance","interval_seconds":86400,"days":28},
+  {"lane":"gsc_inspect_bulk","interval_seconds":604800},
+  {"lane":"sitemap_probe","interval_seconds":604800},
+  {"lane":"crux_history","interval_seconds":604800},
+  {"lane":"pagespeed","interval_seconds":604800}
 ]}
 ```
 
-Both are pure reads — `gsc_sitemaps` uses the read-only GSC scope already granted;
-`bing_crawl` uses the same read-only BWT API key already granted for `bing`/`backlinks`.
-Neither submits, writes, or mutates anything.
-
-## Deliberately not implemented in this pass (see final report for rationale)
-
-- GSC URL Inspection API bulk collection: `scripts/gsc_inspect.py` already exists
-  (single/batch URL inspection) but is a manual/on-demand tool (2000/day, 600/min quota
-  per site) — wiring it into unattended scheduled collection for "important URLs" needs
-  an operator-curated URL list per site, which does not exist yet in `site.yaml`.
-- GSC `searchAppearance` dimension: supported by `gsc_query_v2.py --dimensions` already
-  (any dimension combination Google accepts can be passed), so this is a config change,
-  not a missing collector — add `searchAppearance` to a `gsc` schedule job's
-  `--dimensions` when a distinct rich-result-driven lane is wanted.
-- CrUX History, PageSpeed Insights: already collected by `crux_history.py` /
-  `pagespeed_check.py` respectively; not orchestrated through `collector.py` lanes today,
-  left untouched to avoid scope creep on read cadence/quota this pass did not budget for.
-- hreflang / JSON-LD structured-data audit: `site_audit.py` covers canonical/meta/H1/
-  sitemap issues only; adding hreflang and structured-data checks is additional own-crawl
-  parsing, not an API integration, and was out of scope for the API-surface gap analysis
-  this pass prioritized.
+All are pure reads: `gsc_sitemaps`/`gsc_appearance`/`gsc_inspect_bulk` use the read-only
+GSC scope already granted; `bing_crawl` uses the same read-only BWT API key already
+granted for `bing`/`backlinks`; `sitemap_probe` fetches only the site's own robots.txt/
+sitemap.xml; `crux_history`/`pagespeed` use `GOOGLE_API_KEY`. None submits, writes, or
+mutates anything — `gsc_inspect_bulk` never calls the write-capable indexing/submission
+endpoints, only `urlInspection().index().inspect()`.
