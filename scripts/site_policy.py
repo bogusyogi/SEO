@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from seo_project import load_site
 
-READ_ACTIONS = {'audit', 'gsc', 'ga4', 'bing', 'backlinks', 'rank', 'report', 'verify', 'gsc_ranks', 'cms_read', 'serp'}
+READ_ACTIONS = {'audit', 'gsc', 'ga4', 'bing', 'backlinks', 'rank', 'report', 'verify', 'gsc_ranks', 'serp'}
 CONTENT_ACTIONS = {'draft', 'publish', 'outreach', 'campaign'}
 
 
@@ -32,6 +32,8 @@ def load(root: str | Path) -> dict:
 
 
 def authorize(site: dict, action: str, *, url: str | None = None, path: str | None = None) -> None:
+    if action == 'cms_read':
+        raise PermissionError('direct backend access is not an SEO capability')
     policy = site['policy']
     allowed_hosts = {site['domain'], *(host(x) for x in policy.get('allowed_hosts', []))}
     if url and host(url) not in allowed_hosts:

@@ -24,14 +24,14 @@ Direct access to Google's own SEO data. Bridges the gap between crawl-based
 analysis (existing claude-seo skills) and Google's real-time field data: actual
 Chrome user metrics, real indexation status, search performance, and organic traffic.
 
-Run the commands in this reference from the SEO skill directory:
+Run commands from the standalone SEO installation root:
 
 ```powershell
-Set-Location skills/seo
+Set-Location C:\path\to\SEO
 ```
 
-or prefix script paths with `skills/seo/`. The examples below use `scripts/*.py`
-relative to that directory.
+The examples below use `scripts/*.py` relative to that root. From another working
+directory, invoke them as `python C:\path\to\SEO\scripts\<name>.py`.
 
 All APIs are free. Setup requires a Google Cloud project with API key and/or
 service account -- run `/seo google setup` for step-by-step instructions.

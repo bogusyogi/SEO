@@ -1,5 +1,18 @@
 # Repair-branch reconciliation — 2026-09-17
 
+## Scope correction — 2026-09-20
+
+The sections below record historical changes, not current publication instructions.
+The direct SellRight integration in that repair was an architectural error. SellRight
+is a backend provider for RightApps/RightSites, not an SEO publishing interface. Direct
+SellRight API writes are prohibited; the client and command have been removed. The
+historical server-concurrency/media/token gaps below are superseded, not SEO backlog.
+Shared approved-action, SMTP, repository, collection and recovery safeguards remain.
+See [current integrations](INTEGRATIONS.md) for the corrected boundary. This correction
+does not alter SellRight, the sites' provider usage or any saved historical receipts.
+
+## Historical reconciliation
+
 PR #2 was squash-merged as `402f1879073eebefb32dca792a57862686630210`.
 Its tested modular implementation is the sole canonical runtime. PR #1 at
 `300ac7378a56602633d2b5890ea36ccd1a8c9a24` is retained in history for comparison;

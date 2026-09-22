@@ -44,19 +44,30 @@ asking for known facts. Never silently substitute a global Google property.
   relabel first-party average position as a controlled SERP rank.
 - AI search: `references/ai-search-2026.md`, `geo.md`, `scripts/ai_visibility_import.py`.
   Exports, citations, impressions, referrals and prompt samples remain distinct.
+- Portfolio inventory and resumable execution: `seo.py portfolio`, `seo.py workflow`
+  and `docs/PORTFOLIO-WORKFLOW.md`. Use the existing intervention ledger and queue;
+  do not invent another framework or restrict the system to one pilot domain.
+- Repository publication/media: `seo.py publication`, `seo.py media`; exact-reviewed
+  bounded source-and-assets PR, separately authorized merge, exact deployment receipt, public
+  HTML/media verification and scoped reverse PR. Source/preview review remains the
+  host's responsibility; absent deployment receipts are not a pass.
 - Recurring collection: `scripts/seo_runner.py`; intervention bookkeeping:
   `scripts/search_ops.py`; `references/operations.md` and `docs/OPERATIONS.md`.
 - Images: optional restored `extensions/banana/scripts/`; host-native image tools
   are equally acceptable. Missing provider or spending authority is not success.
-- Live CMS workflow: `seo.py cms` and `docs/INTEGRATIONS.md`; prepare an exact draft,
-  approve its digest, apply once, inspect the CMS receipt, then verify the public page.
-  An uncertain write must be reconciled rather than repeated.
+- Site ownership: verify the site's actual source/content and normal publish/deploy
+  route. SellRight is a backend provider used by RightApps/RightSites, not an SEO
+  publishing API. Never call SellRight APIs to write anything, including via host
+  tools. Do not infer a write route from a backend dependency or a repository name.
 - Report delivery: `seo.py deliver`, explicitly configured TLS SMTP and recipients.
   Server acceptance is not inbox delivery.
 - Controlled SERPs: optional `seo.py serp` with explicit provider, location, language,
   device/OS, sample depth and paid budget. Never use this as a prerequisite for GSC/GA4.
   MCP read tools intentionally cannot invoke this paid lane.
 - Local/ecommerce/international: use only the applicable specialist references.
+- Historical semantic obligations retained in `references/migration-preserved-guidance.md`:
+  local identity reconciliation, truthful authorship/`sameAs`, vertical criteria,
+  and query-opportunity row fields.
 
 ## Operate
 
@@ -73,7 +84,7 @@ asking for known facts. Never silently substitute a global Google property.
    Approval binds the exact digest. Apply enforces the configured action/path policy,
    records the actual local write and supports conflict-safe rollback. A local write
    is NOT a deployment. The host's normal deploy flow runs separately; verify the
-   public URL afterwards. CMS-specific publication requires a configured adapter.
+   public URL afterwards. Backend-provider access is not publication authority.
 6. Run scheduled reads through `seo_runner.py` using operator-authored schedules.
    Jobs are bounded, retryable and idempotent by cadence key. This does not create an
    OS schedule or enable publication automatically. The same commands work manually.

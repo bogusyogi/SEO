@@ -27,11 +27,20 @@ def fingerprint(row):
     return digest({k: row[k] for k in ('id', 'site', 'kind', 'config_digest', 'payload', 'evidence')})
 
 
+def action_for(kind, payload):
+    if kind == 'repository':
+        return 'merge' if payload.get('operation') == 'merge' else 'deploy'
+    if kind == 'delivery':
+        return 'deliver'
+    # Legacy CMS receipts stay readable, but no policy can reactivate the removed route.
+    raise ValueError('unsupported remote action kind; only repository and delivery are supported')
+
+
 def propose(root, action_id, kind, payload, evidence):
     site = load(root)
-    if kind not in {'cms', 'delivery'} or not evidence:
+    if kind not in {'delivery', 'repository'} or not evidence:
         raise ValueError('supported kind and source/review evidence required')
-    authorize(site, 'draft' if kind == 'cms' else 'deliver')
+    authorize(site, action_for(kind, payload))
     with transaction_lock(state_dir(root) / 'remote-actions'):
         path = path_for(root, action_id)
         if path.exists():
@@ -58,7 +67,7 @@ def approve(root, action_id, expected_digest, reference):
         row, site = read(root, action_id), load(root)
         if row['state'] != 'proposed' or fingerprint(row) != expected_digest or row['config_digest'] != digest(site):
             raise ValueError('proposal/configuration changed; create a fresh reviewed action')
-        authorize(site, 'publish' if row['kind'] == 'cms' else 'deliver')
+        authorize(site, action_for(row['kind'], row['payload']))
         row.update(state='approved', approval={'digest': expected_digest, 'reference': reference})
         atomic_json(path_for(root, action_id), row)
         return {'id': action_id, 'state': 'approved', 'request_sha256': expected_digest}
@@ -71,7 +80,7 @@ def execute(root, action_id, kind, operation, *, preflight=None):
             raise PermissionError('action kind/site/configuration mismatch')
         if fingerprint(row) != row['request_sha256'] or (row.get('approval') or {}).get('digest') != row['request_sha256']:
             raise PermissionError('exact action approval is missing or invalid')
-        authorize(site, 'publish' if kind == 'cms' else 'deliver')
+        authorize(site, action_for(kind, row['payload']))
         if row['state'] in {'succeeded', 'partial'}:
             return {'id': action_id, 'state': row['state'], 'duplicate': True, 'receipt': row.get('receipt')}
         if row['state'] in {'running', 'uncertain'}:

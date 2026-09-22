@@ -107,10 +107,12 @@ The public HTTP client denies private/local DNS targets, pins the validated addr
 checks redirected hosts and bounds response sizes. Local staging needs a separate
 trusted adapter, not an opt-out that weakens the public crawler.
 
-The queue is a **repository-file adapter**, not a generic CMS API. SellRight now has a separate `seo.py cms` adapter; its API/store identity and session
-token must be configured and live-qualified. Vendure/WordPress or static deployment
-still uses the host's existing tools or a separately implemented adapter. It is deliberately not a
-made-up “publish succeeded” response. The host may run authorized queue commands without
+The queue is a **repository-file adapter**, not a generic backend API. SellRight is
+used as a backend provider by RightApps/RightSites; SEO must never call its APIs to
+write anything. The removed `cms` command is not a supported route or future work.
+Resolve each site's actual source/content ownership and use its normal publishing
+and deployment workflow. Do not substitute a provider dependency for that discovery.
+The host may run authorized queue commands without
 Legion; no fresh manual approval is required for every action when an explicit standing
 operator policy delegates that exact class of work to the host.
 
@@ -122,5 +124,15 @@ Live GSC/GA4/Bing access, native plugin loading, actual deployments, scheduling 
 availability and long-term outcome quality still require real-environment receipts.
 Neither tests nor source-file counts certify search-ranking or revenue improvement.
 
-For current schedule examples, foreground service operation, CMS approval/rollback,
+For current schedule examples, foreground service operation, repository approval/rollback,
 SMTP delivery, measurement scoping, and optional paid collection, see [INTEGRATIONS.md](INTEGRATIONS.md).
+
+## Resumable portfolio maintenance
+
+The collection runner now optionally calls the shared host-executed workflow after
+its bounded read jobs. Enable it per site; no global switch weakens other site policies.
+The workflow reuses `search_ops` interventions, the local queue and `remote_actions`.
+See [portfolio workflow](PORTFOLIO-WORKFLOW.md) for discover/status, host JSON handoff,
+standing approval, repository/media publication, recovery and durable outcome jobs.
+The managed host/service, credentials and real site deployment route still require
+separate setup. A disabled workflow preserves the previous collection-only behavior.

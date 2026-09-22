@@ -45,7 +45,7 @@ class PinnedHTTPS(http.client.HTTPSConnection):
 
 
 def fetch(url: str, *, method: str = 'GET', max_bytes: int = MAX_BYTES,
-          timeout: float = 20, redirects: int = 5, headers: dict | None = None) -> dict:
+          timeout: float = 20, redirects: int = 5, headers: dict | None = None, binary: bool = False) -> dict:
     if method not in {'GET', 'HEAD'} or not 0 < max_bytes <= MAX_BYTES:
         raise ValueError('invalid bounded read')
     current = url
@@ -80,7 +80,7 @@ def fetch(url: str, *, method: str = 'GET', max_bytes: int = MAX_BYTES,
             if hs.get('content-encoding', 'identity') not in {'identity', ''}:
                 raise ValueError('server ignored identity encoding; compressed response not decoded')
             return {'url': current, 'requested_url': url, 'status': status,
-                    'headers': hs, 'body': body.decode('utf-8', 'replace'), 'redirects': chain}
+                    'headers': hs, 'body': body if binary else body.decode('utf-8', 'replace'), 'redirects': chain}
         finally:
             conn.close()
     raise ValueError('redirect loop')

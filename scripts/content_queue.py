@@ -109,6 +109,10 @@ def approve(root, item_id, *, content_sha256, approval_ref):
         authorize(site, 'publish' if row['kind'] == 'content' else 'metadata', url=row['url'], path=row['path'])
         if site['domain'] != row['site'] or digest(row['content'].encode('utf-8')) != content_sha256:
             raise PermissionError('proposal site or content changed')
+        target = target_path(root, row['path'])
+        current = digest(target.read_bytes()) if target.exists() else None
+        if current != row['baseline_sha256']:
+            raise ValueError('baseline changed before approval; create a fresh proposal')
         row.update(status='approved', approval={'reference': approval_ref, 'digest': content_sha256,
             'proposal_digest': proposal_identity(row), 'config_digest': config_identity(site)})
         atomic_json(path, row)
@@ -158,6 +162,8 @@ def verify(root, item_id, *, expected_text, fetcher=fetch):
         row = json.loads(path.read_text(encoding='utf-8'))
         site = load(root)
         check_binding(row, site)
+        if digest(row['content'].encode('utf-8')) != row['content_sha256']:
+            raise PermissionError('approved content material was altered')
         authorize(site, 'verify', url=row['url'])
         if expected_text not in row['content']:
             raise ValueError('verification assertion must occur in the approved content')
@@ -165,11 +171,18 @@ def verify(root, item_id, *, expected_text, fetcher=fetch):
             raise ValueError('verification requires an applied proposal')
         result = fetcher(row['url'])
         authorize(site, 'verify', url=result['url'])
-        passed = result['status'] == 200 and expected_text in result['body']
+        from public_verify import Page, metadata_assertions, normalize, whitespace
+        page = Page(); page.feed(result['body'])
+        assertions = metadata_assertions(row['content'], row.get('baseline'), page)
+        assertions.update(http_200=result['status'] == 200,
+                          intended_url=normalize(result['url']) == normalize(row['url']),
+                          visible_expected_text=whitespace(expected_text) in whitespace(' '.join(page.text)))
+        passed = all(assertions.values())
         row['verification'] = {'passed': passed, 'url': result['url'], 'http_status': result['status'],
+                               'assertions': assertions,
                                'body_sha256': digest(result['body'].encode()), 'expected_text': expected_text,
                                'checked_at': datetime.now(timezone.utc).isoformat(),
-                               'scope': 'HTTP response and expected text only; not full render or SEO outcome'}
+                               'scope': 'HTTP intended URL, visible expected text and approved literal metadata; not full render or SEO outcome'}
         row['status'] = 'deployed_verified' if passed else 'applied'
         atomic_json(path, row)
         return row['verification']
@@ -183,14 +196,23 @@ def rollback(root, item_id):
         check_binding(row, site)
         authorize(site, 'rollback', url=row['url'], path=row['path'])
         target = target_path(root, row['path'])
-        if row['status'] not in {'applied', 'deployed_verified'}:
+        if row['status'] not in {'applied', 'deployed_verified', 'rolling_back', 'rolled_back'}:
             raise ValueError('rollback requires applied change')
-        if not target.exists() or digest(target.read_bytes()) != row['content_sha256']:
+        current = digest(target.read_bytes()) if target.exists() else None
+        resumed = row['status'] in {'rolling_back', 'rolled_back'} and current == row['baseline_sha256']
+        if not resumed and current != row['content_sha256']:
             raise ValueError('rollback would overwrite unrelated edits')
-        if row['baseline'] is None:
-            target.unlink()
-        else:
-            replace_bytes(target, row['baseline'].encode())
+        if row['status'] == 'rolled_back':
+            if not resumed:
+                raise ValueError('rolled-back target subsequently changed')
+            return row['rollback_receipt']
+        row['status'] = 'rolling_back'
+        atomic_json(path, row)
+        if not resumed:
+            if row['baseline'] is None:
+                target.unlink()
+            else:
+                replace_bytes(target, row['baseline'].encode())
         row['status'] = 'rolled_back'
         row['rollback_receipt'] = {'kind': 'local_file_rollback', 'path': row['path'], 'remote_redeploy_required': True}
         atomic_json(path, row)

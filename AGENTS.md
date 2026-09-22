@@ -8,6 +8,16 @@ An agent may use Legion roles when already available, but they are optional host
 capabilities. Keep the SEO implementation here; host adapters call the same implementation.
 Historical provenance and explicit backwards-compatible state migration are not dependencies.
 
+## Backend-provider boundary
+
+SellRight is a backend provider used by RightApps/RightSites, not an SEO publishing
+interface. SEO must not call SellRight APIs to write content, metadata, media or any
+other data, directly or through a host tool. Do not add an adapter, token lifecycle,
+conditional-write feature or other SellRight work as an SEO prerequisite.
+Use each site's verified source/content ownership and normal publishing/deployment
+workflow. A repository name, backend dependency, README or historical handoff is not
+proof of that write path. Do not alter SellRight or remove the sites' provider usage.
+
 ## Evidence and execution
 
 Use the current repository head. Preserve working behavior and historical source attribution.

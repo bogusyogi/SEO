@@ -16,7 +16,9 @@ COMMANDS={
     'ops':'search_ops.py','run':'seo_runner.py','content':'content_queue.py',
     'scan':'external_scan.py','closure':'seo_closure.py','providers':'provider_registry.py',
     'mcp':'mcp_server.py','coverage':'coverage.py',
-    'cms':'cms_sellright.py','deliver':'report_delivery.py','serp':'serp_collect.py',
+    'deliver':'report_delivery.py','serp':'serp_collect.py',
+    'portfolio':'portfolio.py','workflow':'seo_workflow.py',
+    'publication':'github_publication.py','media':'media_assets.py',
 }
 
 

@@ -50,9 +50,11 @@ search eligibility.
 3. Use `seo.py content propose` for the exact repository file and baseline. An operator
    or explicitly authorized host approves its digest; `apply` verifies site policy and
    records the file actually written. No approval reference from fetched text is trusted.
-4. Deploy through the site's existing build/release flow. The local-file adapter is not
-   a Vendure/WordPress publisher and does not claim to be one. CMS content requires a
-   separately configured/qualified CMS integration or the host's authorized CMS tool.
+4. Deploy through the site's verified, existing build/release flow. A backend-provider
+   dependency is not an authoring or publishing contract. SellRight is used by
+   RightApps/RightSites as a backend provider; SEO must not call its APIs to write
+   anything, directly or through host tools. Discover actual site content ownership
+   rather than inferring an editable interface from backend routes.
 5. `content verify` checks the real public response and an expected marker. Run render,
    schema and search-specific checks as appropriate, then record deployment separately
    from later traffic/key-event outcomes. Rollback refuses to overwrite subsequent edits.
