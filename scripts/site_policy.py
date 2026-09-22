@@ -4,7 +4,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from seo_project import load_site
 
-READ_ACTIONS = {'audit', 'gsc', 'ga4', 'bing', 'backlinks', 'rank', 'report', 'verify', 'gsc_ranks', 'serp'}
+READ_ACTIONS = {'audit', 'gsc', 'ga4', 'bing', 'backlinks', 'rank', 'report', 'verify', 'gsc_ranks', 'serp',
+                'gsc_sitemaps', 'bing_crawl'}
 CONTENT_ACTIONS = {'draft', 'publish', 'outreach', 'campaign'}
 
 
