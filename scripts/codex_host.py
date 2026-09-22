@@ -3,6 +3,8 @@
 This is a transport only.  It asks ``codex exec`` for a JSON SEO proposal and
 returns that proposal; ``seo_workflow.validate_plan`` remains the policy gate.
 No SDK, provider, shell, network permission, or write authority is added.
+Timeout cleanup terminates the direct Codex process only; it does not claim
+containment or termination of a process tree.
 """
 from __future__ import annotations
 
@@ -64,6 +66,10 @@ def _validate_result(request, result):
     return result
 
 
+def _over_output_cap(*paths):
+    return sum(path.stat().st_size for path in paths if path.is_file()) > MAX_OUTPUT
+
+
 def invoke(request, codex, *, model=None, timeout=180, root=None):
     """Run one bounded Codex proposal request using an existing executable."""
     if not isinstance(request, dict) or not isinstance(request.get("task_id"), str) or not request["task_id"]:
@@ -106,14 +112,14 @@ def invoke(request, codex, *, model=None, timeout=180, root=None):
                 while process.poll() is None:
                     if time.monotonic() >= deadline:
                         raise TimeoutError("Codex host exceeded configured deadline")
-                    if (base / "stdout").stat().st_size + (base / "stderr").stat().st_size > MAX_OUTPUT:
+                    if _over_output_cap(base / "stdout", base / "stderr", output_path):
                         raise ValueError("Codex host output exceeds 2 MiB")
                     time.sleep(0.02)
             finally:
                 if process.poll() is None:
                     process.kill()
                 process.wait()
-        if (base / "stdout").stat().st_size + (base / "stderr").stat().st_size > MAX_OUTPUT:
+        if _over_output_cap(base / "stdout", base / "stderr", output_path):
             raise ValueError("Codex host output exceeds 2 MiB")
         if process.returncode != 0:
             raise RuntimeError("Codex host failed; sensitive stderr was not retained")

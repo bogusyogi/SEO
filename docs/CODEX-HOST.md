@@ -40,3 +40,5 @@ qualified against a live model/provider; tests mock the subprocess only.
 
 The command shape follows the installed Codex CLI `exec --help` contract and
 [Codex non-interactive mode documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
+
+Timeout cleanup terminates the direct Codex process only. Qualify host-level process-tree containment separately before unattended use; this wrapper does not provide that containment.

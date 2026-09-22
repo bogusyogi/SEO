@@ -1,5 +1,7 @@
 # SEO 0.3.0
 
+See [support matrix & activation](docs/SUPPORT-MATRIX.md) for qualified routes and live setup boundaries.
+
 Independent SEO/AEO/GEO skill, CLI and local MCP tools for owned-site operations.
 **Legion is not required.** Any agent/harness can use SEO directly; additional writing,
 coding or design roles are optional conveniences, not runtime dependencies.

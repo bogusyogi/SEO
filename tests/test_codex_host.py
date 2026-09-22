@@ -60,6 +60,47 @@ class CodexHostTests(unittest.TestCase):
                 codex_host.invoke(self.request(), sys.executable, root=self.root)
         self.assertNotIn("SECRET-TOKEN", str(caught.exception))
 
+    def test_timeout_kills_direct_process_with_deterministic_clock(self):
+        class Hanging:
+            returncode = None
+            killed = False
+            def poll(self):
+                return None
+            def kill(self):
+                self.killed = True
+                self.returncode = -9
+            def wait(self):
+                return None
+        process = Hanging()
+        with patch.object(codex_host.subprocess, "Popen", return_value=process), \
+             patch.object(codex_host.time, "monotonic", side_effect=[0, 2]), \
+             patch.object(codex_host.time, "sleep"):
+            with self.assertRaises(TimeoutError):
+                codex_host.invoke(self.request(), sys.executable, timeout=1, root=self.root)
+        self.assertTrue(process.killed)
+
+    def test_proposal_file_overflow_is_detected_while_process_runs(self):
+        class Running:
+            returncode = None
+            killed = False
+            def poll(self):
+                return None
+            def kill(self):
+                self.killed = True
+                self.returncode = -9
+            def wait(self):
+                return None
+        process = Running()
+        def fake_popen(args, **kwargs):
+            output = Path(args[args.index("--output-last-message") + 1])
+            output.write_bytes(b"x" * (codex_host.MAX_OUTPUT + 1))
+            return process
+        with patch.object(codex_host.subprocess, "Popen", fake_popen), \
+             patch.object(codex_host.time, "sleep"):
+            with self.assertRaisesRegex(ValueError, "output exceeds"):
+                codex_host.invoke(self.request(), sys.executable, root=self.root)
+        self.assertTrue(process.killed)
+
     def test_wrapper_paths_and_incomplete_proposals_rejected(self):
         with self.assertRaises(ValueError):
             codex_host.invoke(self.request(), str(self.root / "fake.cmd"), root=self.root)
