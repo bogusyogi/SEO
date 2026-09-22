@@ -21,6 +21,7 @@ COMMANDS={
     'publication':'github_publication.py','media':'media_assets.py',
     'details':'provider_details.py','link-import':'link_import.py',
     'dashboard':'dashboard_export.py','readiness':'agent_readiness.py',
+    'opportunities':'opportunity_engine.py','changes':'change_measurement.py',
 }
 
 
