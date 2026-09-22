@@ -141,7 +141,8 @@ def collect(root, lane: str, *, days: int = 28, max_pages: int = 100,
                 try:
                     if targets:
                         raw, code = run_json(root, ['gsc_inspect.py', '--batch', batch_file,
-                            '--site-url', gsc_prop, '--delay', '1.0', '--json'], timeout)
+                            '--site-url', gsc_prop, '--delay', '1.0', '--json'],
+                            max(timeout, 30 + 10 * len(targets)))  # ~1s delay + API latency per URL
                     else:
                         raw, code = {'results': [], 'summary': {'pass': 0, 'fail': 0, 'neutral': 0, 'error': 0},
                                      'error': None}, 0
