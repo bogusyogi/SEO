@@ -1,6 +1,6 @@
 # OpenSEO absorption — SEO-native contract
 
-Source family: `every-app/open-seo`. This reference captures useful OpenSEO behaviors without importing its SaaS shell, database, billing/team model, Cloudflare assumptions, or mandatory DataForSEO coupling.
+Source family: `every-app/open-seo`. This reference captures useful OpenSEO behaviors without importing its SaaS shell, database, billing/team model, Cloudflare assumptions, or provider coupling.
 
 ## What SEO absorbs
 
@@ -66,7 +66,7 @@ Country and language defaults belong to project context and should flow into key
 
 ### Cost visibility
 
-Paid-provider requests need visible cost semantics before expensive/bulk work. Prefer bulk endpoints, cache within the evidence window, and record provider cost/estimate with the evidence. DataForSEO is optional: owned-site first-party lanes must continue to function without it.
+Paid-provider requests need visible cost semantics before expensive/bulk work. Prefer bulk endpoints, cache within the evidence window, and record provider cost/estimate with the evidence. The current OpenSEO README describes DataForSEO as a pay-as-you-go provider; that is a provider option, not a free-all-data guarantee. Owned-site first-party lanes must continue to function without it.
 
 ### MCP / agent access
 
@@ -78,7 +78,9 @@ OpenSEO's `badseo` corpus is a useful testing pattern. SEO deterministic SEO che
 
 ## Current OpenSEO additions reviewed in 2026-09
 
-OpenSEO v0.1.6 added shared project context across its assistant/MCP, Google Analytics organic traffic, and opt-in Lighthouse for agent audits. v0.1.7 added deeper SERP retrieval on demand and repaired Search Console Discover/Google News MCP reports. SEO should absorb the underlying behaviors:
+The reviewed OpenSEO README describes shared project context, Google Analytics organic traffic,
+opt-in Lighthouse, deeper SERP retrieval and Search Console Discover/Google News reports. SEO may
+absorb the underlying evidence behaviors:
 
 - shared durable project context;
 - GA4 organic/business outcome evidence;
@@ -86,7 +88,7 @@ OpenSEO v0.1.6 added shared project context across its assistant/MCP, Google Ana
 - on-demand SERP depth;
 - Search Console surface/type fidelity, including Discover/Google News where requested and supported.
 
-These are behaviors, not reasons to adopt OpenSEO's application architecture.
+These are selected behaviors, not a claim that every OpenSEO feature has been absorbed or verified.
 
 ## Explicit non-absorptions
 

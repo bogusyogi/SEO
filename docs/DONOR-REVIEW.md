@@ -8,7 +8,7 @@ seven codebases. Native third-party tools still require separate qualification.
 | Source | Reviewed material | Decision in this repair |
 |---|---|---|
 | AgriciDaniel/claude-seo | README blob `1ab8963d4fa22142008ef248f03b6908a6ad50bf`; MIT blob `94fac7465f1e76414fc59f9fd97cdfd2105e030d` | Restore inherited image/report support with attribution; isolated explicit runtime setup; evidence-first workflows. Do not import its model/agent topology. |
-| every-app/open-seo | README blob `9a874a272ea17aebb6bca0efe6d5552ee0fb677a` | Persistent per-site context, normalized data and common CLI/MCP implementation. No mandatory DataForSEO account, billing shell or hosted application. |
+| every-app/open-seo | README blob `9a874a272ea17aebb6bca0efe6d5552ee0fb677a` | README-level reference for persistent per-site context, normalized data and common CLI/MCP implementation. Current README describes pay-as-you-go DataForSEO; no claim that all features are absorbed or free. |
 | seranking/seo-skills | README fetched 2026-09-16 | Content briefs, page decisions, backlink-gap and drift workflow benchmarks. No SE Ranking subscription dependency; account-specific integration remains optional host/provider tooling. |
 | harlan-zw/unlighthouse | README blob `ed9c5722d6ade4c7d47c51c04c49be6151800e01` | Optional installed `unlighthouse-ci` adapter with explicit lab-measurement scope; no auto-install. |
 | seo-skills/seo-audit-skill | README blob `7ed1d88148b011c1d8a35baded274b580a7fc8d7` | Optional installed SEOmator CLI adapter; preserve unknown/unmeasured results rather than adopting a marketing rule-count score. |
@@ -36,6 +36,14 @@ is necessary. The temporary recovery workflow is removed from the delivered tree
 
 Provider configuration presence is not a successful live integration. Protocol fixture
 success is not proof of marketplace publication or installation in every native host.
+
+## Scope corrections — 2026-09-22
+
+OpenSEO review remains primarily a README review. A keyless Ahrefs enrichment claim from an
+earlier source was not accepted: its source path returned HTTP 403 when verified from this
+checkout, so no current integration or availability claim is made. Ahrefs provider access,
+including its documented free Domain Rating endpoint, remains subject to its current key,
+attribution and quota requirements.
 
 ## Follow-up contract work — 2026-09-17
 

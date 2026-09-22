@@ -40,6 +40,17 @@ If unavailable, inform the user and provide install instructions.
 
 When analyzing a backlink profile, produce all 7 sections below.
 
+### First-party GSC Links import
+
+Use `python scripts/link_import.py --root <site> --file <export.csv> --format auto` for a
+manual Search Console Links export. `gsc-links` accepts source URLs with optional target URLs;
+missing targets remain `null`. `gsc-domains` preserves top-linking-site counts, including zero.
+The importer writes `.seo/reports/gsc-links.json` with `complete: false`, source-row coverage,
+collection time (`unknown` when export time was not supplied), deduplicated rows and no disavow
+action. Referring-domain values are raw normalized hostnames, not eTLD+1 registrable domains;
+`www.foo` and `foo` can therefore count separately. GSC Links exports are sampled and have no
+official Links report API.
+
 ### 1. Profile Overview
 
 Use `dataforseo_backlinks_summary` to get:
@@ -48,14 +59,18 @@ Use `dataforseo_backlinks_summary` to get:
 - Follow vs nofollow ratio
 - Historical trend (growing, stable, or declining)
 
-**Scoring:**
+Counts and provider metrics are observations for the selected provider and export scope. They are
+not a universal health score or Google ranking signal. A free local health summary may be computed
+from available evidence, but it must publish its formula, scope and missing fields.
+
+**Review prompts:**
 
 | Metric | Good | Warning | Critical |
 |--------|------|---------|----------|
-| Referring domains | >100 | 20-100 | <20 |
-| Follow ratio | >60% | 40-60% | <40% |
-| Domain diversity | No single domain >5% | 1 domain >10% | 1 domain >25% |
-| Trend | Growing or stable | Slow decline | Rapid decline (>20%/quarter) |
+| Referring domains | Compare with prior like-for-like sample | Coverage-limited | Unknown when unavailable |
+| Follow ratio | Describe measured mix | Coverage-limited | Unknown when unavailable |
+| Domain diversity | Describe observed concentration | Coverage-limited | Unknown when unavailable |
+| Trend | Compare compatible complete snapshots | Sample change | Not testable |
 
 ### 2. Anchor Text Distribution
 
@@ -72,7 +87,8 @@ Use `dataforseo_backlinks_anchors` to analyze anchor text patterns.
 | Partial match keyword | 5-15% | >25% |
 | Long-tail / natural | 5-15% | N/A |
 
-Flag if exact-match anchors exceed 15% -- this is a Google Penguin risk signal.
+Anchor distributions are descriptive observations. No fixed percentage proves manipulation or a
+Google action; investigate context, source quality and ownership.
 
 ### 3. Referring Domain Quality
 
@@ -159,23 +175,25 @@ Use `dataforseo_backlinks_backlinks` with date filters to track:
 - Sudden loss of many links (site penalty or content removal)
 - Declining velocity over 3+ months (content not attracting links)
 
-## Backlink Health Score
+## Optional local summary
 
-Calculate a 0-100 score based on:
+If an operator requests a score, calculate it only from observed fields and publish formula,
+provider, sample scope and missing-data treatment beside it. Do not present it as a universal score.
+The following dimensions may be reported without fixed thresholds:
 
 | Factor | Weight | Scoring |
 |--------|--------|---------|
 | Referring domain count | 20% | Scale based on industry benchmarks |
-| Domain quality distribution | 20% | % from authority domains (DR 40+) |
-| Anchor text naturalness | 15% | Penalty for over-optimization |
-| Toxic link ratio | 20% | <2% = full score, >10% = 0 |
-| Link velocity trend | 10% | Growing = full, declining = partial |
-| Follow/nofollow ratio | 5% | >60% follow = full score |
-| Geographic relevance | 10% | % from target market countries |
+| Domain quality distribution | 20% | Provider metric distribution with source and scope |
+| Anchor text naturalness | 15% | Contextual review; no fixed over-optimization cutoff |
+| Review signals | 20% | Contextual review only; no fixed toxic percentage |
+| Link velocity trend | 10% | Compare compatible measured periods |
+| Follow/nofollow ratio | 5% | Report observed mix only |
+| Geographic relevance | 10% | Describe intended-market fit; country alone is not proof |
 
 ## Output Format
 
-### Backlink Health Score: XX/100
+### Optional backlink summary: XX/100 (formula and coverage required)
 
 | Section | Status | Score |
 |---------|--------|-------|
@@ -200,9 +218,9 @@ Calculate a 0-100 score based on:
 | API credits insufficient | DataForSEO balance low | Check balance at app.dataforseo.com |
 
 **Graceful fallback:** If DataForSEO is unavailable:
-1. Inform user that backlink analysis requires the DataForSEO extension
+1. Inform user that deeper third-party backlink analysis requires the DataForSEO extension
 2. Offer to check robots.txt and sitemap for basic link signals instead
-3. Suggest manual tools: Ahrefs Webmaster Tools (free), Google Search Console Links report
+3. Suggest manual tools: Ahrefs exports or its documented free DR endpoint, Google Search Console Links report
 
 ## Reference Documentation
 

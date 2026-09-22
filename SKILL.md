@@ -34,6 +34,15 @@ asking for known facts. Never silently substitute a global Google property.
   `question_inventory.py`. `gsc_query.py` retains compatibility without inventing totals.
 - Analytics: `scripts/ga4_report.py`; period-level distinct users and business metrics
   are queried separately from daily/page observations.
+- Detailed owned-site evidence: `seo.py details --root SITE` or `--portfolio MANIFEST`;
+  GSC comparisons, daily/query/page/device/country data, GA4, URL inspection, Bing
+  samples and optional free Ahrefs Domain Rating. `--only` and `--skip-fresh MINUTES`
+  bound repeated reads. Provider success does not prove GA4 event arrival.
+- Saved dashboard evidence: `seo.py dashboard`; schema and coverage in
+  `docs/dashboard-snapshot.md`. Google Links CSVs use `seo.py link-import --root SITE
+  --file EXPORT.csv`; Google provides no Links API. Keep imports dated and sampled.
+- Agent readiness without activation: `seo.py readiness`; read
+  `docs/AGENT-READINESS.md` for host and verified site deployment route requirements.
 - Technical: `references/technical.md`, `sitemap.md`, `schema.md`, `hreflang.md`,
   `cwv-thresholds.md`; optional installed scanners through `scripts/external_scan.py`.
 - On-page and blogs: `references/page.md`, `blog-post-contract.md`,

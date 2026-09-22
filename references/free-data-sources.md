@@ -1,7 +1,8 @@
-# Free SEO data providers — the 100% free automated stack
+# Free SEO data sources
 
-Every provider here is **free forever** (not a trial) and has a **real API** the audit can
-call unattended. This is the whole owned-site SEO data layer — no Ahrefs/Semrush needed.
+Several first-party sources have free access or free quotas, subject to current product limits,
+property eligibility, authentication and export coverage. Availability is not a promise that every
+SEO data type is free or automatable.
 
 ## Why you don't need a paid tool for your own sites
 
@@ -24,8 +25,9 @@ themselves hand you the same facts for free — and more accurately, because it'
 | Traffic, conversions | GA4 | No |
 | **Competitor** backlinks / keywords / rankings | — | **Yes (Ahrefs/Semrush/DataForSEO)** |
 
-So the rule: **owned-site audit = 100% free. Competitor espionage = paid.** All 7 Right-Suite/brand
-sites are owned, so the free stack below covers them completely.
+Owned-site evidence can often be collected at no provider charge. It remains bounded by each
+source's scope: GSC Links exports are sampled, and they have no official API for the Links report.
+Competitor backlink and keyword datasets generally require a separate paid provider or manual export.
 
 ## The providers
 
@@ -38,9 +40,10 @@ sites are owned, so the free stack below covers them completely.
 | **Bing Webmaster** | Bing rankings, crawl issues, **your backlinks**, URL submit | free API key | `BING_API_KEY` | ✅ |
 | **IndexNow** | instant-index push (Bing/Yandex/others) | self-hosted key file | `INDEXNOW_KEY` | ✅ |
 
-> **Ahrefs Webmaster Tools (AWT)** is free to *use* but has **no free API** — the data is only in
-> the dashboard / manual CSV export. So it is NOT in this automated stack. If you download an AWT
-> CSV by hand, drop it in `SEO/exports/<site>/` and the audit will parse it as a manual lane.
+> **Ahrefs Webmaster Tools (AWT)** can be used through its dashboard and manual exports. Ahrefs now
+> documents a free Domain Rating API endpoint that requires a free API v3 key and attribution:
+> [Get Domain Rating (free)](https://docs.ahrefs.com/en/api/reference/public/get-domain-rating-free).
+> It does not make the full Ahrefs backlink graph free or remove provider limits.
 > Google's **Indexing API** (`indexing_notify.py`) is free but officially only honors JobPosting/
 > VideoObject pages — use IndexNow for general pages instead.
 
@@ -67,38 +70,20 @@ sites are owned, so the free stack below covers them completely.
    as a text file at the site root: `https://<host>/<key>.txt` whose *contents are exactly the key*
    (for the Right-Suite Qwik sites: drop `<key>.txt` in `public/`).
 
-## Setting the env vars (PowerShell, Windows)
+## Setting provider configuration (PowerShell, Windows)
 
-`SetEnvironmentVariable(..., 'User')` persists across reboots; the `$env:` line makes it live in the
-**current** session without a restart. Do both. (Restart Claude/Codex after, so the new session
-inherits them — env is captured at process start.)
+Keep API keys and service-account paths private. Use a secret manager or local process environment;
+never commit, print, or paste credentials into reports.
 
 ```powershell
-# Google (PageSpeed + CrUX)
-[Environment]::SetEnvironmentVariable('GOOGLE_API_KEY','PASTE_KEY','User'); $env:GOOGLE_API_KEY='PASTE_KEY'
-
-# Google service account (GSC + GA4) — path to the downloaded JSON
-[Environment]::SetEnvironmentVariable('GOOGLE_APPLICATION_CREDENTIALS','<path-to-service-account-json>','User'); $env:GOOGLE_APPLICATION_CREDENTIALS='<path-to-service-account-json>'
-
-# Per-site: which property (change per site before its audit, or pass --property on the call)
-[Environment]::SetEnvironmentVariable('GSC_PROPERTY','sc-domain:example.com','User'); $env:GSC_PROPERTY='sc-domain:example.com'
-[Environment]::SetEnvironmentVariable('GA4_PROPERTY_ID','123456789','User'); $env:GA4_PROPERTY_ID='123456789'
-
-# Bing Webmaster
-[Environment]::SetEnvironmentVariable('BING_API_KEY','PASTE_BING_KEY','User'); $env:BING_API_KEY='PASTE_BING_KEY'
-
-# IndexNow (value from `python scripts/indexnow.py genkey`)
-[Environment]::SetEnvironmentVariable('INDEXNOW_KEY','PASTE_INDEXNOW_KEY','User'); $env:INDEXNOW_KEY='PASTE_INDEXNOW_KEY'
+# Set protected local values only as needed:
+$env:GOOGLE_API_KEY = '<local secret>'
+$env:GOOGLE_APPLICATION_CREDENTIALS = '<private service-account path>'
+$env:GSC_PROPERTY = 'sc-domain:example.com'
+$env:GA4_PROPERTY_ID = '<property id>'
+$env:BING_API_KEY = '<local secret>'
+$env:INDEXNOW_KEY = '<local secret>'
 ```
-
-Verify (should print the values):
-```powershell
-$env:GOOGLE_API_KEY, $env:GOOGLE_APPLICATION_CREDENTIALS, $env:BING_API_KEY, $env:INDEXNOW_KEY
-```
-
-`GOOGLE_API_KEY` and `GOOGLE_APPLICATION_CREDENTIALS` are one-time (all sites share them). Only
-`GSC_PROPERTY` / `GA4_PROPERTY_ID` change per site — set them before each site's audit, or the audit
-runner passes them as `--property` / `--property-id` per call.
 
 ## Which script consumes which
 

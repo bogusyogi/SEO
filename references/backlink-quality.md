@@ -1,8 +1,11 @@
 # Backlink Quality Scoring Methodology
 
-## Toxic Link Indicators (30 Patterns)
+## Link review signals (30 patterns)
 
-### Definite Spam (auto-flag)
+These are prompts for evidence-led manual review, not automatic toxic labels. TLD, country,
+language, anchor share, provider authority and link counts do not prove manipulation or harm.
+
+### High-priority review signals
 1. Link from domain with 10,000+ outbound links per page
 2. Link from domain with no indexed pages in Google
 3. Link from domain registered <30 days ago with 100+ outbound links
@@ -14,7 +17,7 @@
 9. Links from auto-generated content (spun articles)
 10. Links from domains with manual Google penalties
 
-### Likely Spam (manual review)
+### Contextual review signals
 11. Links from domains with >90% outbound link ratio
 12. Foreign-language domains linking to English content (and vice versa)
 13. Links from expired/auctioned domains repurposed for link building
@@ -52,29 +55,28 @@
 
 | Pattern | Signal | Action |
 |---------|--------|--------|
-| 10x normal new links in 1 week | Possible negative SEO | Investigate source, prepare disavow |
-| 50%+ links lost in 1 month | Penalty or site issues | Check GSC for manual actions |
+| 10x normal new links in 1 week | Possible change or attack | Investigate source and coverage; do not infer a penalty |
+| 50%+ links lost in 1 month | Provider/sample or site change | Recheck compatible exports and manual actions |
 | Zero new links for 3+ months | Content not attracting links | Review content strategy |
 | All new links from same TLD | Coordinated link building | Diversify sources |
 | Spike from single country | Link network activity | Review geographic sources |
 
-## Disavow Recommendations
+## Disavow recommendations
 
-**When to disavow:**
-- Domain has received a manual penalty from Google
-- Clear evidence of negative SEO attack
-- Toxic link ratio exceeds 10% of total profile
-- Specific domains identified as PBN or link farms
+Use Google's disavow tool only for a substantial number of artificial or low-quality links that
+caused, or are likely to cause, a manual action. First make a good-faith effort to remove links
+when practical. See [Google's disavow links guidance](https://support.google.com/webmasters/answer/2648487).
+There is no defensible universal toxic-link percentage, TLD threshold or language threshold.
 
 **When NOT to disavow:**
 - Low-quality links that Google likely ignores anyway
 - Nofollow links (already devalued by Google)
 - Links from legitimate but low-authority sites
-- Small number of spam links (<2% of profile)
+- A small number of unsolicited links without evidence of a manual action
 
 **Disavow file format:**
 ```
-# Toxic domains identified by Claude SEO backlink analysis
+# Domains proposed for human review after evidence is recorded
 # Date: YYYY-MM-DD
 # Total domains disavowed: X
 domain:spamsite1.com

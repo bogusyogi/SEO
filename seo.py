@@ -19,6 +19,8 @@ COMMANDS={
     'deliver':'report_delivery.py','serp':'serp_collect.py',
     'portfolio':'portfolio.py','workflow':'seo_workflow.py',
     'publication':'github_publication.py','media':'media_assets.py',
+    'details':'provider_details.py','link-import':'link_import.py',
+    'dashboard':'dashboard_export.py','readiness':'agent_readiness.py',
 }
 
 

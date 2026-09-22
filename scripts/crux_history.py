@@ -131,6 +131,10 @@ def query_history(
         # Parse p75 values (CLS is string-encoded)
         p75s = []
         for val in p75s_raw:
+            # CrUX History encodes each percentile point as {"p75": value};
+            # older fixtures may contain scalar values. Preserve both forms.
+            if isinstance(val, dict):
+                val = val.get("p75")
             if val is None:
                 p75s.append(None)
             elif metric_name == "cumulative_layout_shift":

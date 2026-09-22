@@ -44,6 +44,16 @@ class DashboardExportTests(unittest.TestCase):
         self.assertEqual(exporter._simple(self.env({'rows': []}, 'backlinks'), 'backlinks')['count'], 0)
         self.assertIsNone(exporter._simple(None, 'backlinks')['count'])
 
+    def test_audit_details_use_page_evidence_and_unique_affected_urls(self):
+        env = self.env({'crawled': 3, 'pages': {'https://example.com/': {'status': 200}, 'https://example.com/a': {'status': 500}, 'https://example.com/b': {'status': 200}}, 'issues': {'bad': ['https://example.com/a (x)', 'https://example.com/a (y)'], 'thin': ['https://example.com/b']}, 'severity': {'errors': ['bad'], 'warnings': ['thin']}, 'redirects': {'https://example.com/old': {'status': 301}}, 'broken_links_all': {'https://example.com/missing': {'status': 404}, 'https://example.com/blocked': {'status': 403}}}, 'audit')
+        result = exporter._simple(env, 'audit')
+        self.assertEqual(result['response_health_score'], 66.66666666666667)
+        self.assertEqual(result['response_health_basis'], {'error_free_urls': 2, 'crawled_urls': 3, 'unknown_status_urls': 0})
+        self.assertEqual(result['affected_urls'], {'critical': 0, 'errors': 1, 'warnings': 1, 'info': 0})
+        self.assertEqual(result['redirects']['count'], 1)
+        self.assertEqual(result['broken']['count'], 1)
+        self.assertEqual(result['blocked']['count'], 1)
+
     def test_newest_failure_identity_and_valid_timestamp(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); lane = root / '.seo' / 'gsc'; lane.mkdir(parents=True)
@@ -72,6 +82,39 @@ class DashboardExportTests(unittest.TestCase):
             (newer / 'example-com.json').write_text(json.dumps({'site': 'example.com', 'captured_at': '2026-09-28T00:00:00Z', 'status': 'failed', 'psi': {'error': 'quota'}, 'crux': {'error': 'quota'}}), encoding='utf-8')
             result = exporter._performance(reports, 'example.com')
             self.assertEqual(result['status'], 'failed'); self.assertIsNone(result['scores']['performance']); self.assertEqual(result['crux_status'], 'failed')
+
+    def test_performance_vitals_are_allowlisted_and_nullable(self):
+        with tempfile.TemporaryDirectory() as temp:
+            reports = Path(temp); folder = reports / 'performance-baseline-2026-09-22'; folder.mkdir()
+            main = folder / 'example-com.json'
+            main.write_text(json.dumps({'site': 'example.com', 'captured_at': '2026-09-22', 'psi': {'status': 'success'}, 'crux': {'status': 'data', 'latest_p75': {'lcp_ms': 2100, 'inp_ms': 120, 'cls': 0.04}}}), encoding='utf-8')
+            main.with_suffix('.psi.json').write_text(json.dumps({'psi': {'mobile': {'lighthouse_scores': {'performance': 90}, 'lab_metrics': {'largest-contentful-paint': {'value': 2100}, 'cumulative-layout-shift': {'value': 0.04}, 'total-blocking-time': {'value': 140}}, 'key_source': 'C:/private'}}}), encoding='utf-8')
+            result = exporter._performance(reports, 'example.com')
+            self.assertEqual(result['vitals'], {'lab': {'lcp_ms': 2100, 'cls': 0.04, 'tbt_ms': 140}, 'crux': {'lcp_ms': 2100, 'inp_ms': 120, 'cls': 0.04}})
+            self.assertNotIn('private', json.dumps(result))
+
+    def test_optional_detail_reports_are_sanitized(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); state = root / '.seo'; (state / 'reports').mkdir(parents=True)
+            (state / 'site.yaml').write_text(json.dumps({'domain': 'example.com'}), encoding='utf-8')
+            (state / 'reports' / 'provider-details.json').write_text(json.dumps({'schema_version': 1, 'site': 'example.com', 'status': 'partial', 'collected_at': '2026-09-22T00:00:00Z', 'gsc': {'status': 'ok', 'collected_at': '2026-09-22T00:00:00Z', 'query_changes': [{'query': 'x', 'clicks': 1, 'previous_clicks': 0}], 'pages': [{'url': 'https://example.com/a', 'index_status': {'verdict': 'PASS'}, 'secret': 'x'}]}, 'errors': [{'provider': 'gsc', 'message': 'token C:/private'}]}), encoding='utf-8')
+            (state / 'reports' / 'gsc-links.json').write_text(json.dumps({'schema_version': 1, 'site': 'example.com', 'status': 'ok', 'collected_at': '2026-09-22T00:00:00Z', 'imported_at': '2026-09-22T00:01:00Z', 'rows': [{'source_url': 'https://ref.example/a', 'target_url': 'https://example.com/a', 'anchor': 'private'}], 'referring_domains': ['ref.example']}), encoding='utf-8')
+            details = exporter._provider_details(root)
+            self.assertEqual(details['provider']['gsc']['pages'], [{'url': 'https://example.com/a', 'index_status': {'verdict': 'PASS'}}])
+            self.assertEqual(details['provider']['gsc']['query_changes'][0]['previous_clicks'], 0)
+            self.assertEqual(details['imported_links']['referring_domains'], 1)
+            self.assertEqual(details['imported_links']['collected_at'], '2026-09-22T00:00:00Z')
+            self.assertNotIn('private', json.dumps(details))
+
+    def test_provider_bing_stats_are_normalized_from_microsoft_fields(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); state = root / '.seo'; (state / 'reports').mkdir(parents=True)
+            (state / 'site.yaml').write_text(json.dumps({'domain': 'example.com'}), encoding='utf-8')
+            payload = {'schema_version': 1, 'site': 'example.com', 'status': 'ok', 'collected_at': '2026-09-22T00:00:00Z', 'bing': {'status': 'ok', 'collected_at': '2026-09-22T00:00:00Z', 'stats': {'queries': [{'Date': '2026-09-18T00:00:00Z', 'Query': 'example', 'Clicks': 2, 'Impressions': 9, 'AvgImpressionPosition': 4}], 'pages': [{'Date': '2026-09-18T00:00:00Z', 'Query': 'https://example.com/a', 'Clicks': 1, 'Impressions': 3, 'AvgImpressionPosition': 2}], 'crawl': []}}}
+            (state / 'reports' / 'provider-details.json').write_text(json.dumps(payload), encoding='utf-8')
+            details = exporter._provider_details(root)
+            self.assertEqual(details['provider']['bing']['stats']['queries'][0]['clicks'], 2)
+            self.assertEqual(details['provider']['bing']['stats']['pages'][0]['query'], 'https://example.com/a')
 
     def test_history_modes_relative_roots_and_unreadable_site(self):
         with tempfile.TemporaryDirectory() as temp:
