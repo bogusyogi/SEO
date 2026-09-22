@@ -8,6 +8,12 @@ sys.path.insert(0, str(Path(__file__).parents[1] / 'scripts'))
 import dashboard_export as exporter
 
 
+class _FakeCompleted:
+    def __init__(self, stdout, returncode=0):
+        self.stdout = stdout
+        self.returncode = returncode
+
+
 class DashboardExportTests(unittest.TestCase):
     def env(self, data, lane='gsc', status='ok', stamp='2026-09-22T00:00:00Z'):
         return {'site': 'example.com', 'lane': lane, 'status': status, 'collected_at': stamp, 'data': data}
@@ -138,6 +144,92 @@ class DashboardExportTests(unittest.TestCase):
             self.assertEqual(list(Path(temp).glob('*.tmp')), [])
             with self.assertRaises(ValueError): exporter.write_snapshot({'number': float('nan')}, output)
             self.assertEqual(output.read_text(), 'original')
+
+    def test_action_queue_shells_out_and_filters_invalid_items(self):
+        payload = json.dumps({'schema_version': 1, 'generated_at': '2026-09-22T00:00:00Z', 'portfolio_queue': [
+            {'site': 'example.com', 'url': 'https://example.com/a', 'detector': 'orphan_page', 'risk_class': 'auto_safe', 'score': 5.0, 'proposed_action': {'type': 'add_internal_link', 'notes': 'x'}},
+            {'site': 'example.com', 'url': 'https://example.com/b', 'detector': 'ctr_below_expected', 'risk_class': 'needs_review', 'score': 3.0, 'proposed_action': {'type': 'rewrite', 'notes': 'y'}},
+            {'site': 'example.com', 'url': 'bad', 'detector': 'x', 'risk_class': 'not_a_class', 'score': 1.0, 'proposed_action': {}},
+        ]})
+        with patch.object(exporter.subprocess, 'run', return_value=_FakeCompleted(payload)):
+            result = exporter._action_queue(Path('portfolio.json'), Path('reports'))
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(len(result['items']), 2)
+        self.assertEqual(result['counts'], {'auto_safe': 1, 'needs_review': 1, 'forbidden': 0})
+        self.assertEqual(result['items'][0]['url'], 'https://example.com/a')
+
+    def test_action_queue_missing_on_failed_subprocess(self):
+        with patch.object(exporter.subprocess, 'run', side_effect=OSError('missing runtime')):
+            result = exporter._action_queue(Path('portfolio.json'), Path('reports'))
+        self.assertEqual(result['status'], 'missing')
+        self.assertEqual(result['items'], [])
+        with patch.object(exporter.subprocess, 'run', return_value=_FakeCompleted('not json', returncode=0)):
+            self.assertEqual(exporter._action_queue(Path('portfolio.json'), Path('reports'))['status'], 'missing')
+        with patch.object(exporter.subprocess, 'run', return_value=_FakeCompleted('{}', returncode=1)):
+            self.assertEqual(exporter._action_queue(Path('portfolio.json'), Path('reports'))['status'], 'missing')
+
+    def test_site_changes_normalizes_outcomes_and_missing(self):
+        payload = json.dumps({'schema_version': 1, 'changes': [
+            {'id': 'chg-1', 'commit': 'abc123', 'deploy_time': '2026-09-01T00:00:00Z', 'measurement_window_days': 28, 'outcome': 'improved'},
+            {'id': 'chg-2', 'commit': None, 'deploy_time': '2026-09-05T00:00:00Z', 'measurement_window_days': 14, 'outcome': None},
+            {'id': 'chg-3', 'deploy_time': 'not-a-date', 'measurement_window_days': -1, 'outcome': 'bogus'},
+        ]})
+        with patch.object(exporter.subprocess, 'run', return_value=_FakeCompleted(payload)):
+            result = exporter._site_changes(Path('root'))
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['items'][0]['outcome'], 'improved')
+        self.assertEqual(result['items'][1]['outcome'], 'pending')
+        self.assertIsNone(result['items'][1]['commit'])
+        self.assertIsNone(result['items'][2]['deploy_time'])
+        self.assertIsNone(result['items'][2]['measurement_window_days'])
+        self.assertEqual(result['items'][2]['outcome'], 'pending')
+        with patch.object(exporter.subprocess, 'run', side_effect=OSError('boom')):
+            missing = exporter._site_changes(Path('root'))
+        self.assertEqual(missing, {'status': 'missing', 'items': []})
+
+    def test_indexing_sitemaps_appearance_bing_crawl_measured_zero_vs_missing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / '.seo').mkdir(parents=True)
+            (root / '.seo' / 'site.yaml').write_text(json.dumps({'domain': 'example.com'}), encoding='utf-8')
+            (root / '.seo' / 'gsc_inspect_bulk').mkdir(parents=True)
+            (root / '.seo' / 'gsc_inspect_bulk' / '0.json').write_text(json.dumps(self.env({
+                'results': [
+                    {'url': 'https://example.com/a', 'index_status': {'coverage_state': 'Submitted and indexed'}},
+                    {'url': 'https://example.com/b', 'index_status': {'coverage_state': 'Crawled - currently not indexed'}},
+                ]}, lane='gsc_inspect_bulk')), encoding='utf-8')
+            indexing = exporter._indexing_block(root)
+            self.assertEqual(indexing['status'], 'ok')
+            self.assertEqual(indexing['indexed']['count'], 1)
+            self.assertEqual(indexing['unknown_or_excluded']['count'], 1)
+            self.assertEqual(exporter._indexing_block(root.parent / 'nope')['status'], 'missing')
+
+            (root / '.seo' / 'gsc_sitemaps').mkdir(parents=True)
+            (root / '.seo' / 'gsc_sitemaps' / '0.json').write_text(json.dumps(self.env({
+                'sitemaps': [{'path': 'https://example.com/sitemap.xml', 'is_pending': False, 'warnings': 0, 'errors': 0,
+                              'contents': [{'type': 'web', 'submitted': 10, 'indexed': 8}]}]}, lane='gsc_sitemaps')), encoding='utf-8')
+            (root / '.seo' / 'sitemap_probe').mkdir(parents=True)
+            (root / '.seo' / 'sitemap_probe' / '0.json').write_text(json.dumps(self.env({
+                'robots_declares_sitemap': False, 'default_sitemap_xml_reachable': False, 'measured_zero': True}, lane='sitemap_probe')), encoding='utf-8')
+            sitemaps = exporter._sitemaps_block(root)
+            self.assertEqual(sitemaps['registered'][0]['submitted'], 10)
+            self.assertEqual(sitemaps['registered'][0]['indexed'], 8)
+            self.assertEqual(sitemaps['probe']['measured_zero'], True)
+
+            (root / '.seo' / 'gsc_appearance').mkdir(parents=True)
+            (root / '.seo' / 'gsc_appearance' / '0.json').write_text(json.dumps(self.env({
+                'rows': [{'searchAppearance': 'AMP_BLUE_LINK', 'clicks': 3, 'impressions': 40, 'ctr': 0.075, 'position': 5.2}]}, lane='gsc_appearance')), encoding='utf-8')
+            appearance = exporter._appearance_block(root)
+            self.assertEqual(appearance['rows'][0]['appearance'], 'AMP_BLUE_LINK')
+            self.assertEqual(appearance['rows'][0]['clicks'], 3)
+
+            (root / '.seo' / 'bing_crawl').mkdir(parents=True)
+            (root / '.seo' / 'bing_crawl' / '0.json').write_text(json.dumps(self.env({
+                'issue_count': 0, 'measured_zero': True}, lane='bing_crawl')), encoding='utf-8')
+            crawl = exporter._bing_crawl_block(root)
+            self.assertEqual(crawl['issue_count'], 0)
+            self.assertTrue(crawl['measured_zero'])
+            self.assertEqual(exporter._bing_crawl_block(root.parent / 'nope')['issue_count'], None)
 
 
 if __name__ == '__main__':

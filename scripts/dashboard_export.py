@@ -5,17 +5,23 @@ import json
 import math
 import os
 import re
+import subprocess
+import sys
 import tempfile
 from urllib.parse import urlsplit
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from seo_project import load_site
+from runtime_setup import python_executable
 
 LANES = ('gsc', 'ga4', 'bing', 'audit', 'backlinks')
 SCORES = ('performance', 'accessibility', 'best-practices', 'seo')
 MIN_TIME = datetime.min.replace(tzinfo=timezone.utc)
 STATUSES = {'ok', 'success', 'partial', 'failed', 'error', 'missing', 'blocked', 'no_data', 'not_testable'}
+SCRIPTS_DIR = Path(__file__).resolve().parent
+RISK_CLASSES = ('auto_safe', 'needs_review', 'forbidden')
+CHANGE_OUTCOMES = {'pending', 'improved', 'neutral', 'regressed', 'insufficient_data'}
 
 
 def _read(path):
@@ -482,6 +488,151 @@ def _readiness(reports, domain):
     return {'activation': obj.get('activation') if isinstance(obj.get('activation'), str) else None, 'provider_identities': identities, 'policy': {'mode': _text(_dict(site.get('policy')).get('mode'), 64)}, 'route_plan': route, 'evidence': {'reports': [_text(item, 128) for item in evidence.get('reports', [])[:100] if isinstance(item, str)], 'saved_site_report': evidence.get('saved_site_report') is True}}
 
 
+def _run_json(argv, timeout=120):
+    try:
+        completed = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if completed.returncode != 0:
+        return None
+    try:
+        return json.loads(completed.stdout)
+    except ValueError:
+        return None
+
+
+def _action_item(item):
+    if not isinstance(item, dict):
+        return None
+    site = item.get('site')
+    url = _url(item.get('url'))
+    detector = item.get('detector')
+    risk_class = item.get('risk_class')
+    score = _num(item.get('score'))
+    if not isinstance(site, str) or not isinstance(detector, str) or risk_class not in RISK_CLASSES:
+        return None
+    action = _dict(item.get('proposed_action'))
+    return {
+        'site': _text(site, 256),
+        'url': url,
+        'detector': _text(detector, 128),
+        'risk_class': risk_class,
+        'score': score,
+        'proposed_action': {'type': _text(action.get('type'), 128), 'notes': _text(action.get('notes'), 500) or None},
+    }
+
+
+def _action_queue(portfolio: Path, reports_dir: Path):
+    empty = {'status': 'missing', 'generated_at': None, 'counts': {risk: 0 for risk in RISK_CLASSES}, 'items': []}
+    payload = _run_json([python_executable(), str(SCRIPTS_DIR / 'opportunity_engine.py'), 'portfolio', str(portfolio), '--reports-dir', str(reports_dir)])
+    if not isinstance(payload, dict) or payload.get('schema_version') != 1:
+        return empty
+    queue = payload.get('portfolio_queue')
+    if not isinstance(queue, list):
+        return empty
+    items = [row for row in (_action_item(entry) for entry in queue) if row is not None]
+    counts = {risk: 0 for risk in RISK_CLASSES}
+    for row in items:
+        counts[row['risk_class']] += 1
+    generated_at = payload.get('generated_at')
+    return {'status': 'ok', 'generated_at': generated_at if _stamp(generated_at) != MIN_TIME else None, 'counts': counts, 'items': items[:15]}
+
+
+def _site_changes(root):
+    payload = _run_json([python_executable(), str(SCRIPTS_DIR / 'change_measurement.py'), 'list', str(root)])
+    if not isinstance(payload, dict) or payload.get('schema_version') != 1:
+        return {'status': 'missing', 'items': []}
+    changes = payload.get('changes')
+    if not isinstance(changes, list):
+        return {'status': 'missing', 'items': []}
+    items = []
+    for change in changes:
+        if not isinstance(change, dict) or not isinstance(change.get('id'), str):
+            continue
+        outcome = change.get('outcome')
+        outcome = outcome if outcome in CHANGE_OUTCOMES else 'pending'
+        deploy_time = change.get('deploy_time')
+        window = change.get('measurement_window_days')
+        items.append({
+            'id': _text(change['id'], 128),
+            'commit': _text(change.get('commit'), 64) if isinstance(change.get('commit'), str) else None,
+            'deploy_time': deploy_time if _stamp(deploy_time) != MIN_TIME else None,
+            'measurement_window_days': window if type(window) is int and window >= 0 else None,
+            'outcome': outcome,
+        })
+    return {'status': 'ok', 'items': items}
+
+
+def _sitemaps_block(root):
+    gsc_env = _latest(root, 'gsc_sitemaps')
+    probe_env = _latest(root, 'sitemap_probe')
+    gsc_data = _data(gsc_env)
+    probe_data = _data(probe_env)
+    gsc_sitemaps = []
+    for row in gsc_data.get('sitemaps', []) if isinstance(gsc_data.get('sitemaps'), list) else []:
+        if not isinstance(row, dict):
+            continue
+        path = _url(row.get('path'))
+        if not path:
+            continue
+        contents = row.get('contents') if isinstance(row.get('contents'), list) else []
+        submitted = sum(_num(_dict(c).get('submitted')) or 0 for c in contents if isinstance(c, dict))
+        indexed = sum(_num(_dict(c).get('indexed')) or 0 for c in contents if isinstance(c, dict))
+        gsc_sitemaps.append({'path': path, 'is_pending': row.get('is_pending') if isinstance(row.get('is_pending'), bool) else None,
+                              'warnings': _num(row.get('warnings')), 'errors': _num(row.get('errors')),
+                              'submitted': submitted, 'indexed': indexed})
+    probe = None
+    if probe_data:
+        probe = {'robots_declares_sitemap': probe_data.get('robots_declares_sitemap') if isinstance(probe_data.get('robots_declares_sitemap'), bool) else None,
+                 'default_sitemap_xml_reachable': probe_data.get('default_sitemap_xml_reachable') if isinstance(probe_data.get('default_sitemap_xml_reachable'), bool) else None,
+                 'measured_zero': probe_data.get('measured_zero') if isinstance(probe_data.get('measured_zero'), bool) else None}
+    return {'status': 'ok' if (gsc_env or probe_env) else 'missing',
+            'gsc_collected_at': gsc_env.get('collected_at') if isinstance(gsc_env, dict) else None,
+            'probe_collected_at': probe_env.get('collected_at') if isinstance(probe_env, dict) else None,
+            'registered': gsc_sitemaps, 'probe': probe}
+
+
+def _indexing_block(root):
+    env = _latest(root, 'gsc_inspect_bulk')
+    data = _data(env)
+    results = data.get('results') if isinstance(data.get('results'), list) else []
+    indexed, unknown = [], []
+    for row in results:
+        if not isinstance(row, dict):
+            continue
+        url = _url(row.get('url'))
+        if not url:
+            continue
+        state = _dict(row.get('index_status')).get('coverage_state')
+        if isinstance(state, str) and 'submitted and indexed' in state.lower():
+            indexed.append(url)
+        else:
+            unknown.append(url)
+    return {**_base(env), 'indexed': {'count': len(indexed), 'urls': indexed[:100]},
+            'unknown_or_excluded': {'count': len(unknown), 'urls': unknown[:100]}}
+
+
+def _appearance_block(root):
+    env = _latest(root, 'gsc_appearance')
+    data = _data(env)
+    rows = []
+    for row in data.get('rows', []) if isinstance(data.get('rows'), list) else []:
+        if not isinstance(row, dict):
+            continue
+        appearance = row.get('searchAppearance', row.get('search_appearance'))
+        if not isinstance(appearance, str):
+            continue
+        rows.append({'appearance': _text(appearance, 128), **{k: _num(row.get(k)) for k in ('clicks', 'impressions', 'ctr', 'position')}})
+    rows.sort(key=lambda row: row['impressions'] or 0, reverse=True)
+    return {**_base(env), 'rows': rows[:50]}
+
+
+def _bing_crawl_block(root):
+    env = _latest(root, 'bing_crawl')
+    data = _data(env)
+    return {**_base(env), 'issue_count': _num(data.get('issue_count')), 'measured_zero': data.get('measured_zero') if isinstance(data.get('measured_zero'), bool) else None}
+
+
 def _site(root, reports):
     site = load_site(root)
     domain = site.get('domain')
@@ -512,6 +663,11 @@ def _site(root, reports):
     gsc = _merge_provider_overview(gsc, details)
     result = {'domain': domain, 'mode': mode, 'gsc': gsc, 'ga4': _ga4(_latest(root, 'ga4'), setup.get('ga4_event_arrival', 'unknown')), 'bing': _bing(_latest(root, 'bing')), 'audit': _simple(_latest(root, 'audit'), 'audit'), 'backlinks': _simple(_latest(root, 'backlinks'), 'backlinks'), 'performance': _performance(reports, domain), 'jobs': jobs, 'indexnow': 'accepted_202' if setup.get('indexnow_homepage_submission') == 'accepted_202' else 'verified_key' if setup.get('indexnow_live_verified') else 'unknown', 'limitations': ['Provider periods can differ. A recent collection may return older underlying data.', 'Search changes after deployment do not establish causation.', 'AI citations, competitor traffic & a comprehensive backlink index are not automated by this dashboard.']}
     if details: result['details'] = details
+    result['indexing'] = _indexing_block(root)
+    result['sitemaps'] = _sitemaps_block(root)
+    result['search_appearance'] = _appearance_block(root)
+    result['bing_crawl'] = _bing_crawl_block(root)
+    result['changes'] = _site_changes(root)
     return result
 
 
@@ -528,8 +684,10 @@ def build_snapshot(portfolio: Path, performance_reports: Path):
                 root = portfolio.parent / root
             sites.append(_site(root, performance_reports))
         except (OSError, ValueError, TypeError, AttributeError, KeyError):
-            sites.append({'domain': f'unavailable-site-{index + 1}.invalid', 'mode': 'monitoring', 'gsc': _gsc(None), 'ga4': _ga4(None), 'bing': _bing(None), 'audit': _simple(None, 'audit'), 'backlinks': _simple(None, 'backlinks'), 'performance': _performance(Path('Z:\missing-performance-reports'), f'unavailable-site-{index + 1}.invalid'), 'jobs': [], 'indexnow': 'unknown', 'limitations': ['Project evidence could not be read. Collector host needs attention.']})
-    return {'schema_version': 1, 'generated_at': datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z'), 'sites': sites}
+            sites.append({'domain': f'unavailable-site-{index + 1}.invalid', 'mode': 'monitoring', 'gsc': _gsc(None), 'ga4': _ga4(None), 'bing': _bing(None), 'audit': _simple(None, 'audit'), 'backlinks': _simple(None, 'backlinks'), 'performance': _performance(Path('Z:\missing-performance-reports'), f'unavailable-site-{index + 1}.invalid'), 'jobs': [], 'indexnow': 'unknown', 'limitations': ['Project evidence could not be read. Collector host needs attention.'],
+                          'indexing': _indexing_block(portfolio.parent / '__unavailable__'), 'sitemaps': _sitemaps_block(portfolio.parent / '__unavailable__'), 'search_appearance': _appearance_block(portfolio.parent / '__unavailable__'), 'bing_crawl': _bing_crawl_block(portfolio.parent / '__unavailable__'), 'changes': {'status': 'missing', 'items': []}})
+    action_queue = _action_queue(portfolio, performance_reports)
+    return {'schema_version': 1, 'generated_at': datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z'), 'sites': sites, 'action_queue': action_queue}
 
 
 def write_snapshot(snapshot, output: Path):
