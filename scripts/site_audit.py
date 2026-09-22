@@ -67,6 +67,41 @@ def parse(html):
     sig['viewport'] = bool(re.search(r'<meta[^>]+name\s*=\s*["\']viewport["\']', html, re.I))
     sig['noindex'] = bool(re.search(r'<meta(?=[^>]*name\s*=\s*["\'](?:robots|googlebot)["\'])(?=[^>]*content\s*=\s*["\'][^"\']*(?:noindex|none))[^>]*>', html, re.I))
     sig['mixed_content'] = bool(re.search(r'<(?:img|script|iframe|video|audio|source)\b[^>]*\bsrc\s*=\s*["\']http://|<link\b[^>]*\bhref\s*=\s*["\']http://', html, re.I))
+
+    # robots meta directives (raw content strings, e.g. "noindex, nofollow")
+    robots_meta = re.findall(r'<meta(?=[^>]*name\s*=\s*["\'](?:robots|googlebot)["\'])[^>]*\bcontent\s*=\s*["\']([^"\']*)["\']', html, re.I)
+    sig['robots_meta'] = [m.strip() for m in robots_meta]
+    sig['nofollow'] = any('nofollow' in m.lower() for m in robots_meta)
+
+    # hreflang alternates: {lang code: href}
+    hreflang = {}
+    for tag in re.findall(r'<link\b[^>]*\brel\s*=\s*["\']alternate["\'][^>]*>', html, re.I):
+        lang = re.search(r'\bhreflang\s*=\s*["\']([^"\']+)["\']', tag, re.I)
+        href = re.search(r'\bhref\s*=\s*["\']([^"\']+)["\']', tag, re.I)
+        if lang and href:
+            hreflang[lang.group(1).strip()] = href.group(1).strip()
+    sig['hreflang'] = hreflang
+
+    # JSON-LD structured data: @type(s) present + block parse validity; no schema.org
+    # conformance claim, only "did we find a parseable block and what does it claim to be".
+    jsonld_types, jsonld_invalid = [], 0
+    for block in re.findall(r'<script[^>]*\btype\s*=\s*["\']application/ld\+json["\'][^>]*>(.*?)</script>', html, re.S | re.I):
+        try:
+            parsed_block = json.loads(block.strip())
+        except (ValueError, TypeError):
+            jsonld_invalid += 1
+            continue
+        items = parsed_block if isinstance(parsed_block, list) else [parsed_block]
+        for item in items:
+            if isinstance(item, dict):
+                t = item.get('@type')
+                if isinstance(t, list):
+                    jsonld_types.extend(str(x) for x in t)
+                elif t:
+                    jsonld_types.append(str(t))
+    sig['jsonld_types'] = sorted(set(jsonld_types))
+    sig['jsonld_invalid_blocks'] = jsonld_invalid
+    sig['jsonld_present'] = bool(jsonld_types) or jsonld_invalid > 0
     return sig, imgs
 
 
@@ -182,6 +217,15 @@ def audit(start, maxpages):
         if urllib.parse.urlsplit(url).scheme == 'https' and sig.get('mixed_content'): issues['mixed_content'].append(url)
         if normalize(url) in sitemap and len(inlinks.get(normalize(url), ())) == 0: issues['orphan_in_sitemap'].append(url)
         if noindex and normalize(url) in sitemap: issues['noindex_in_sitemap'].append(url)
+        if not sig.get('jsonld_present'): issues['missing_structured_data'].append(url)
+        if sig.get('jsonld_invalid_blocks'): issues['invalid_jsonld'].append(f'{url} ({sig["jsonld_invalid_blocks"]})')
+        for lang, href in (sig.get('hreflang') or {}).items():
+            if lang.lower() not in ('x-default',) and urllib.parse.urlsplit(href).netloc not in ('', host) \
+                    and urllib.parse.urlsplit(href).netloc.lstrip('www.') != host.lstrip('www.'):
+                issues['hreflang_points_offsite'].append(f'{url} [{lang}] -> {href}')
+        if sig.get('hreflang') and url not in sig['hreflang'].values() and \
+                normalize(url) not in {normalize(h) for h in sig['hreflang'].values()}:
+            issues['hreflang_missing_self_reference'].append(url)
 
     for loc in sitemap:
         status = checked.get(loc) or (pages.get(loc, {}) or {}).get('initial_status')
@@ -189,8 +233,8 @@ def audit(start, maxpages):
         elif status and status >= 400: issues['4xx_in_sitemap'].append(f'{loc} ({status})')
 
     issues['broken_internal_links'] = [f'[{v["status"]}] {u} (from {v["inlinks"]} pages)' for u, v in broken.items() if urllib.parse.urlsplit(u).netloc == host and v['inlinks'] > 0]
-    errors = ('broken_internal_links', 'redirect_in_sitemap', '4xx_in_sitemap', 'missing_title', 'multiple_h1', 'noindex_in_sitemap')
-    warnings = ('duplicate_title', 'duplicate_meta_desc', 'missing_h1', 'missing_canonical', 'canonical_points_elsewhere', 'missing_meta_desc', 'orphan_in_sitemap', 'mixed_content', 'thin_content', 'img_missing_alt', 'missing_viewport')
+    errors = ('broken_internal_links', 'redirect_in_sitemap', '4xx_in_sitemap', 'missing_title', 'multiple_h1', 'noindex_in_sitemap', 'invalid_jsonld', 'hreflang_points_offsite')
+    warnings = ('duplicate_title', 'duplicate_meta_desc', 'missing_h1', 'missing_canonical', 'canonical_points_elsewhere', 'missing_meta_desc', 'orphan_in_sitemap', 'mixed_content', 'thin_content', 'img_missing_alt', 'missing_viewport', 'missing_structured_data', 'hreflang_missing_self_reference')
     return {
         'url': start,
         'crawled': len(pages),

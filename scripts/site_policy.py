@@ -5,7 +5,8 @@ from urllib.parse import urlsplit
 from seo_project import load_site
 
 READ_ACTIONS = {'audit', 'gsc', 'ga4', 'bing', 'backlinks', 'rank', 'report', 'verify', 'gsc_ranks', 'serp',
-                'gsc_sitemaps', 'bing_crawl'}
+                'gsc_sitemaps', 'bing_crawl', 'gsc_appearance', 'gsc_inspect_bulk', 'sitemap_probe',
+                'crux_history', 'pagespeed'}
 CONTENT_ACTIONS = {'draft', 'publish', 'outreach', 'campaign'}
 
 
