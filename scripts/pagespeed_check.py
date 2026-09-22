@@ -94,6 +94,7 @@ def run_pagespeed(
         "field_metrics": {},
         "opportunities": [],
         "diagnostics": [],
+        "audit_details": {},
         "failed_audits": [],
         "passed_audits_count": 0,
         "seo_audits": [],

@@ -3,8 +3,10 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import types
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 HERE = Path(__file__).resolve().parent
 SEO_ROOT = HERE.parent
@@ -28,6 +30,48 @@ class ProviderReplayTests(unittest.TestCase):
     def setUpClass(cls):
         cls.gsc = load('gsc_query_v2')
         cls.ai = load('ai_visibility_import')
+        try:
+            import requests  # noqa: F401
+        except ImportError:
+            requests_stub = types.ModuleType('requests')
+            requests_stub.get = Mock()
+            requests_stub.post = Mock()
+            requests_stub.exceptions = types.SimpleNamespace(
+                Timeout=TimeoutError,
+                HTTPError=RuntimeError,
+                RequestException=Exception,
+            )
+            sys.modules['requests'] = requests_stub
+            try:
+                cls.pagespeed = load('pagespeed_check')
+            finally:
+                sys.modules.pop('requests', None)
+        else:
+            cls.pagespeed = load('pagespeed_check')
+
+    def test_pagespeed_audit_details_preserves_heading_rows(self):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            'analysisUTCTimestamp': '2026-09-22T00:00:00.000Z',
+            'lighthouseResult': {
+                'categories': {},
+                'audits': {
+                    'unused-css-rules': {
+                        'title': 'Unused CSS',
+                        'details': {
+                            'headings': [{'key': 'url'}],
+                            'items': [{'url': 'https://example.com/app.css'}],
+                        },
+                    },
+                },
+            },
+        }
+        with patch.object(self.pagespeed.requests, 'get', return_value=response):
+            result = self.pagespeed.run_pagespeed('https://example.com/', strategy='mobile')
+        self.assertIsNone(result['error'])
+        self.assertEqual(result['audit_details']['unused-css-rules']['headings'], ['url'])
+        self.assertEqual(result['audit_details']['unused-css-rules']['items'][0]['url'], 'https://example.com/app.css')
 
     def test_gsc_aggregate_is_not_dimension_sum(self):
         fixture = json.loads((FIX / 'gsc_replay.json').read_text())
