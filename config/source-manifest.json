@@ -19,5 +19,5 @@
     {"repository": "AgriciDaniel/claude-seo", "role": "benchmark-and-concepts", "license": "MIT"},
     {"repository": "seranking/seo-skills", "role": "benchmark-and-concepts", "license": "MIT"}
   ],
-  "rule": "Source changes require reviewed semantic control diff; donor concepts do not override current official platform guidance or Legion authority/effect contracts."
+  "rule": "Source changes require reviewed semantic control diff; donor concepts do not override current official platform guidance or operator-owned site policy and exact-action approval contracts."
 }

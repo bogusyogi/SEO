@@ -48,7 +48,7 @@ asking for known facts. Never silently substitute a global Google property.
   and `docs/PORTFOLIO-WORKFLOW.md`. Use the existing intervention ledger and queue;
   do not invent another framework or restrict the system to one pilot domain.
 - Repository publication/media: `seo.py publication`, `seo.py media`; exact-reviewed
-  page-plus-assets PR, separately authorized merge, exact deployment receipt, public
+  bounded source-and-assets PR, separately authorized merge, exact deployment receipt, public
   HTML/media verification and scoped reverse PR. Source/preview review remains the
   host's responsibility; absent deployment receipts are not a pass.
 - Recurring collection: `scripts/seo_runner.py`; intervention bookkeeping:
@@ -65,6 +65,9 @@ asking for known facts. Never silently substitute a global Google property.
   device/OS, sample depth and paid budget. Never use this as a prerequisite for GSC/GA4.
   MCP read tools intentionally cannot invoke this paid lane.
 - Local/ecommerce/international: use only the applicable specialist references.
+- Historical semantic obligations retained in `references/migration-preserved-guidance.md`:
+  local identity reconciliation, truthful authorship/`sameAs`, vertical criteria,
+  and query-opportunity row fields.
 
 ## Operate
 

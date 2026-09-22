@@ -135,7 +135,7 @@ were not performed by writing these adapters.
 
 The [portfolio workflow](PORTFOLIO-WORKFLOW.md) connects existing mechanisms without a
 Legion dependency. `github_publication.py` uses GitHub Git/PR/Deployment APIs for an
-exact-approved page plus immutable media assets. Branch/PR publication, separately
+exact-approved source bundle plus immutable media assets. Branch/PR publication, separately
 approved merge, exact-commit deployment and public HTML/image verification are separate
 receipts. Recovery creates a scoped reverse PR rather than resetting unrelated work.
 

@@ -25,7 +25,7 @@ site deployment is enabled by cloning/installing the package.
 `seo.py portfolio` discovers existing site workspaces and reports per-site readiness.
 `seo.py workflow` connects the existing intervention ledger, content queue and selected
 agent host into a resumable check/prepare/approve/apply/verify/follow-up loop. GitHub-backed
-sites can publish one page and its staged media in a reviewed PR, qualify the exact
+sites can publish up to ten reviewed source files and staged media in one PR, qualify the exact
 commit's deployment and prepare a scoped reverse PR. Later page-scoped GSC checks are
 actual durable jobs, not just suggested dates. Missing measurement blocks dependent
 decisions, not unrelated sites or independently verifiable technical work.
@@ -36,6 +36,10 @@ off by default. SellRight is a backend provider used by RightApps/RightSites, no
 an SEO publishing API. Direct SellRight writes are prohibited, and the old backend
 adapter has been removed. Site content changes must use the site's verified ownership
 and normal publishing/deployment route; no SellRight development is an SEO prerequisite.
+
+See [migration coverage](docs/MIGRATION-COVERAGE.md) for original skill lineage,
+[Codex host](docs/CODEX-HOST.md) for the optional proposal adapter, and
+[server deployment receipts](docs/DEPLOYMENT-RECEIPTS.md) for existing hosting pipelines.
 
 ## Quick start
 

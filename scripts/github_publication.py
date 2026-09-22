@@ -43,7 +43,18 @@ class GitHub:
             raise ValueError('GitHub token environment reference required')
         if not cfg.get('base_branch') or not cfg.get('environment'):
             raise ValueError('explicit base_branch and deployment environment required')
+        subdir = cfg.get('repository_subdir', '')
+        if not isinstance(subdir, str) or subdir.startswith(('/', '\\')) or subdir.endswith(('/', '\\')) or '\\' in subdir:
+            raise ValueError('repository_subdir must be a relative POSIX path')
+        parts = subdir.split('/') if subdir else []
+        if any(part in {'', '.', '..'} or part.startswith('.') or ':' in part or any(ord(c) < 32 for c in part) for part in parts):
+            raise ValueError('repository_subdir contains an unsafe path segment')
+        self.repository_subdir = subdir
         self.prefix = '/repos/'+cfg['repository']
+
+    def remote_path(self, source_path):
+        source_path = str(source_path).replace('\\', '/')
+        return self.repository_subdir+'/'+source_path if self.repository_subdir else source_path
 
     def call(self, method, path, payload=None, *, list_result=False):
         token = os.environ.get(self.config['token_env'])
@@ -113,7 +124,9 @@ class GitHub:
             if any(row.get('ref') == 'refs/heads/'+payload['branch'] for row in refs):
                 raise ValueError('publication branch already exists; reconcile instead of overwriting')
             for item in payload['files']:
-                authorize(self.site, 'deploy', path=item['path'])
+                authorize(self.site, 'deploy', path=item.get('source_path', item['path']))
+                if item['path'] != self.remote_path(item.get('source_path', item['path'])):
+                    raise ValueError('publication path differs from configured repository subdirectory')
                 if item.get('content') is not None and git_blob(decode(item)) != item['sha']:
                     raise ValueError('publication content changed')
 
@@ -157,34 +170,69 @@ def decode(item):
     return item['content'].encode('utf-8') if item['encoding'] == 'utf-8' else base64.b64decode(item['content'], validate=True)
 
 
-def prepare(root, action_id, task_id, *, media_ids=(), evidence, transport=request):
+def _queue_rows(root, primary_id, supporting_ids, site):
+    ids = [primary_id, *supporting_ids]
+    if len(supporting_ids) > 9:
+        raise ValueError('at most nine supporting queue items are allowed')
+    if len(set(ids)) != len(ids):
+        raise ValueError('publication queue items must be unique')
+    rows = []
+    seen_paths = set()
+    for identifier in ids:
+        row = json.loads(queue.item_path(root, identifier).read_text(encoding='utf-8'))
+        queue.check_binding(row, site)
+        if row['status'] not in {'applied', 'deployed_verified'} or row['site'] != site['domain']:
+            raise ValueError('publication requires exact approved/applied local queue items')
+        if rows and row['url'] != rows[0]['url']:
+            raise ValueError('supporting queue items must target the same URL')
+        if rows and row['kind'] != rows[0]['kind']:
+            raise ValueError('supporting queue items must use the same action kind')
+        normalized_path = os.path.normcase(os.path.normpath(str(row['path']).replace('\\', '/'))).replace('\\', '/')
+        if normalized_path in seen_paths:
+            raise ValueError('publication queue items must use distinct paths')
+        seen_paths.add(normalized_path)
+        target = queue.target_path(root, row['path'])
+        if queue.digest(row['content'].encode('utf-8')) != row['content_sha256']:
+            raise ValueError('approved queue content changed')
+        if not target.exists() or queue.digest(target.read_bytes()) != row['content_sha256']:
+            raise ValueError('local content changed after approval')
+        rows.append(row)
+    return rows
+
+
+def prepare(root, action_id, task_id, *, supporting_task_ids=(), media_ids=(), evidence, transport=request):
     site = load(root); authorize(site, 'deploy')
-    row = json.loads(queue.item_path(root, task_id).read_text(encoding='utf-8')); queue.check_binding(row, site)
-    if row['status'] not in {'applied', 'deployed_verified'} or row['site'] != site['domain']:
-        raise ValueError('publication requires an exact approved/applied local queue item')
+    if not isinstance(supporting_task_ids, (list, tuple)):
+        raise ValueError('supporting_task_ids must be a bounded sequence')
+    rows = _queue_rows(root, task_id, list(supporting_task_ids), site)
     client = GitHub(site, transport); client.identity(); base = client.base(); tree_sha, entries = client.tree(base)
-    path = row['path']; authorize(site, 'deploy', path=path, url=row['url'])
-    target = queue.target_path(root, path)
-    if queue.digest(target.read_bytes()) != row['content_sha256'] or queue.digest(row['content'].encode()) != row['content_sha256']:
-        raise ValueError('local content changed after approval')
-    previous = entries.get(path)
-    expected = git_blob(row['baseline'].encode()) if row['baseline'] is not None else None
-    if (previous or {}).get('sha') != expected or previous and previous['mode'] not in {'100644', '100755'}:
-        raise ValueError('remote content baseline conflicts with approved local baseline')
-    files = [{'path': path, 'mode': previous['mode'] if previous else '100644', 'content': row['content'],
-              'encoding': 'utf-8', 'sha': git_blob(row['content'].encode())}]
+    files = []
+    source_files = []
+    for row in rows:
+        path = row['path']; authorize(site, 'deploy', path=path, url=row['url'])
+        remote_path = client.remote_path(path)
+        previous = entries.get(remote_path)
+        expected = git_blob(row['baseline'].encode()) if row['baseline'] is not None else None
+        if (previous or {}).get('sha') != expected or previous and previous['mode'] not in {'100644', '100755'}:
+            raise ValueError('remote content baseline conflicts with approved local baseline')
+        item = {'path': remote_path, 'source_path': path, 'mode': previous['mode'] if previous else '100644', 'content': row['content'],
+                'encoding': 'utf-8', 'sha': git_blob(row['content'].encode()), 'source_task_id': row['id']}
+        files.append(item)
+        source_files.append({'task_id': row['id'], 'path': remote_path, 'source_path': path, 'sha': item['sha']})
     if len(media_ids) > 10 or len(set(media_ids)) != len(media_ids):
         raise ValueError('bounded unique media IDs required')
     assets = []
     for identifier in media_ids:
         asset = media_assets.read(root, identifier); raw = media_assets.bytes_for(root, identifier)
         authorize(site, 'deploy', path=asset['path'], url=asset['public_url'])
-        if asset['path'] in entries or any(f['path'] == asset['path'] for f in files):
+        remote_asset_path = client.remote_path(asset['path'])
+        if remote_asset_path in entries or any(f['path'] == remote_asset_path for f in files):
             raise ValueError('media must use a new immutable path; existing assets are not overwritten')
-        files.append({'path': asset['path'], 'mode': '100644', 'content': base64.b64encode(raw).decode('ascii'),
+        files.append({'path': remote_asset_path, 'source_path': asset['path'], 'mode': '100644', 'content': base64.b64encode(raw).decode('ascii'),
                       'encoding': 'base64', 'sha': git_blob(raw)})
         assets.append(asset)
     return actions.propose(root, action_id, 'repository', {'operation': 'publish', 'task_id': task_id,
+        'task_ids': [row['id'] for row in rows], 'source_files': source_files,
         'repository_id': client.config['repository_id'], 'base_sha': base, 'base_tree': tree_sha,
         'branch': 'seo/'+action_id, 'files': files, 'media': assets, 'original_entries': entries}, evidence)
 
@@ -284,25 +332,40 @@ def prepare_rollback(root, original_id, new_id, *, evidence, transport=request):
     if original['payload']['operation'] != 'publish':
         raise ValueError('rollback source must be the original publication')
     client = GitHub(site, transport); client.identity(); base = client.base(); tree_sha, entries = client.tree(base)
-    task = json.loads(queue.item_path(root, original['payload']['task_id']).read_text(encoding='utf-8'))
-    queue.check_binding(task, site)
-    content_file = original['payload']['files'][0]; current = entries.get(content_file['path'])
-    if not current or current['sha'] != content_file['sha']:
-        raise ValueError('rollback would overwrite subsequent page edits')
-    baseline = task['baseline']
-    files = [{'path': content_file['path'], 'mode': current['mode'], 'content': baseline,
-              'encoding': 'utf-8', 'sha': git_blob(baseline.encode()) if baseline is not None else None}]
-    # Restore/remove only the original page. New immutable media stays in place;
+    payload = original['payload']
+    source_specs = payload.get('source_files')
+    if not source_specs:
+        source_specs = [{'task_id': payload['task_id'], 'path': payload['files'][0]['path'],
+                         'source_path': payload['files'][0].get('source_path', payload['files'][0]['path']),
+                         'sha': payload['files'][0]['sha']}]
+    files = []
+    for spec in source_specs:
+        task = json.loads(queue.item_path(root, spec['task_id']).read_text(encoding='utf-8'))
+        queue.check_binding(task, site)
+        current = entries.get(spec['path'])
+        if not current or current['sha'] != spec['sha']:
+            raise ValueError('rollback would overwrite subsequent page edits')
+        baseline = task['baseline']
+        files.append({'path': spec['path'], 'source_path': spec.get('source_path', task['path']), 'mode': current['mode'], 'content': baseline,
+                      'encoding': 'utf-8', 'sha': git_blob(baseline.encode()) if baseline is not None else None,
+                      'source_task_id': spec['task_id']})
+    # Restore/remove only the original source files. New immutable media stays in place;
     # never delete shared assets or reset a whole repository to an older commit.
-    return actions.propose(root, new_id, 'repository', {'operation': 'rollback', 'task_id': task['id'],
+    return actions.propose(root, new_id, 'repository', {'operation': 'rollback', 'task_id': source_specs[0]['task_id'],
+        'task_ids': [spec['task_id'] for spec in source_specs], 'source_files': source_specs,
         'repository_id': client.config['repository_id'], 'base_sha': base, 'base_tree': tree_sha,
         'branch': 'seo/'+new_id, 'files': files, 'media': [], 'original_entries': entries}, evidence)
 
 
 def progress(root, task_id, plan, *, transport=request):
     site = load(root); cfg = site.get('deployment') or {}; identifier = task_id+'-repo'
+    supporting_changes = plan.get('supporting_changes', [])
+    if not isinstance(supporting_changes, list) or len(supporting_changes) > 9:
+        raise ValueError('supporting_changes must contain at most nine entries')
+    supporting_ids = [task_id+'-file-'+str(index) for index, _ in enumerate(supporting_changes)]
     if not actions.path_for(root, identifier).exists():
-        prepare(root, identifier, task_id, media_ids=plan.get('media_ids', []), evidence=plan['review']['evidence'], transport=transport)
+        prepare(root, identifier, task_id, supporting_task_ids=supporting_ids,
+                media_ids=plan.get('media_ids', []), evidence=plan['review']['evidence'], transport=transport)
     row = actions.read(root, identifier)
     if row['state'] == 'proposed':
         if cfg.get('auto_submit') is not True or not cfg.get('approval_ref'):
@@ -331,14 +394,14 @@ def progress(root, task_id, plan, *, transport=request):
 def main():
     ap = argparse.ArgumentParser(description=__doc__); ap.add_argument('--root', default='.')
     sub = ap.add_subparsers(dest='command', required=True)
-    p = sub.add_parser('prepare'); p.add_argument('id'); p.add_argument('--task', required=True); p.add_argument('--media', action='append', default=[]); p.add_argument('--evidence', required=True)
+    p = sub.add_parser('prepare'); p.add_argument('id'); p.add_argument('--task', required=True); p.add_argument('--supporting-task', action='append', default=[]); p.add_argument('--media', action='append', default=[]); p.add_argument('--evidence', required=True)
     p = sub.add_parser('approve'); p.add_argument('id'); p.add_argument('--digest', required=True); p.add_argument('--approval-ref', required=True)
     for name in ('apply', 'reconcile', 'status'):
         sub.add_parser(name).add_argument('id')
     for name in ('prepare-merge', 'rollback'):
         p = sub.add_parser(name); p.add_argument('original'); p.add_argument('id'); p.add_argument('--evidence', required=True)
     a = ap.parse_args()
-    if a.command == 'prepare': result = prepare(a.root, a.id, a.task, media_ids=a.media, evidence=a.evidence)
+    if a.command == 'prepare': result = prepare(a.root, a.id, a.task, supporting_task_ids=a.supporting_task, media_ids=a.media, evidence=a.evidence)
     elif a.command == 'approve': result = actions.approve(a.root, a.id, a.digest, a.approval_ref)
     elif a.command == 'status': result = deployment(a.root, a.id)
     elif a.command == 'prepare-merge': result = prepare_merge(a.root, a.id, a.original, evidence=a.evidence)

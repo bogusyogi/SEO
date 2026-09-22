@@ -7,6 +7,7 @@ is a proposal, never evidence that a remote effect happened.
 from __future__ import annotations
 import argparse
 import json
+import os
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,7 +24,7 @@ from site_policy import load, authorize
 TERMINAL = {'done', 'cancelled'}
 KINDS = {'metadata', 'content'}
 PLAN_KEYS = {'schema_version', 'task_id', 'decision', 'reason', 'path', 'content', 'expected_text',
-             'review', 'editorial', 'media_ids', 'next_review_days'}
+             'review', 'editorial', 'media_ids', 'next_review_days', 'supporting_changes', 'verification'}
 
 
 def clock(now=None):
@@ -155,6 +156,10 @@ def host_request(root, row):
             'Do not call SellRight APIs or replace site-owned publishing with backend-provider writes. '
             'SellRight is a backend provider for RightApps/RightSites, not an SEO publishing interface. '
             'For change supply path, native-format content, expected_text present in that content, reason and review. '
+            'For every native-source or supporting file supply verification [{path,url,kind,value}], '
+            'where value occurs in that approved source and url is owned by this site. Kinds: title, description, '
+            'h1, text, link, sitemap_url, robots_rule. These assertions check actual public responses. '
+            'Optional supporting_changes may contain up to 9 additional {path, content} files; use distinct paths. '
             'Review must include facts, intent, links, preview as pass and a nonempty evidence reference. '
             'Content changes also require editorial: author_id from site.author_facts, intent, information_gain, '
             'sources [{url, checked_at, supports}], claims [{claim, source, state, use_in_output}]. '
@@ -183,7 +188,27 @@ def validate_plan(root, row, plan, *, now=None):
     authorize(site, 'draft' if row['workflow']['kind'] == 'content' else 'metadata',
               url=row['target'], path=plan.get('path', ''))
     queue.target_path(root, plan['path'])
+    supporting = plan.get('supporting_changes', [])
+    if not isinstance(supporting, list) or len(supporting) > 9:
+        raise ValueError('supporting_changes must contain at most 9 files')
+    paths = {os.path.normcase(str(queue.target_path(root, plan['path'])))}
+    for change in supporting:
+        if not isinstance(change, dict) or set(change) != {'path', 'content'}:
+            raise ValueError('supporting changes require only path and content')
+        path = change['path']; supporting_content = change['content']
+        if not isinstance(path, str) or not path or not isinstance(supporting_content, str) or not supporting_content.strip():
+            raise ValueError('supporting changes require bounded nonempty paths and content')
+        if len(supporting_content.encode('utf-8')) > 1024 * 1024:
+            raise ValueError('supporting change content exceeds 1 MiB')
+        normalized = os.path.normcase(str(queue.target_path(root, path)))
+        if normalized in paths:
+            raise ValueError('supporting change paths must be distinct')
+        paths.add(normalized)
+        authorize(site, 'draft' if row['workflow']['kind'] == 'content' else 'metadata',
+                  url=row['target'], path=path)
     review = plan.get('review')
+    from public_verify import validate_contract
+    validate_contract(root, plan, row['target'])
     if not isinstance(review, dict) or not review.get('evidence') or any(review.get(k) != 'pass' for k in ('facts', 'intent', 'links', 'preview')):
         raise ValueError('completed fact/intent/link/preview review evidence required')
     media = plan.get('media_ids', [])
@@ -270,19 +295,27 @@ def _prepare(root, row, plan, *, now):
         wf['stage'] = 'retained' if plan['decision'] == 'retain' else 'deferred'
         wf['next_run_at'] = (now+timedelta(days=plan.get('next_review_days', 7))).isoformat()
         return
-    try:
-        receipt = queue.propose(root, row['id'], path=plan['path'], content=plan['content'],
-            url=row['target'], kind=wf['kind'], evidence=plan['review']['evidence'])
-    except FileExistsError:
-        # Recovery after queue persistence but before ledger persistence. Exact
-        # intent/content/target must match; never adopt an unrelated same-ID action.
-        existing = json.loads(queue.item_path(root, row['id']).read_text(encoding='utf-8'))
-        if any(existing[k] != value for k, value in {'site': wf['site'], 'path': plan['path'],
-                'url': row['target'], 'kind': wf['kind'], 'content': plan['content'],
-                'evidence': plan['review']['evidence']}.items()):
-            raise ValueError('existing queue action does not match workflow proposal')
-        receipt = existing
-    wf.update(stage='prepared', content_sha256=receipt['content_sha256'])
+    changes = [{'id': row['id'], 'path': plan['path'], 'content': plan['content']}]
+    changes += [{'id': f"{row['id']}-file-{index}", 'path': item['path'], 'content': item['content']}
+                for index, item in enumerate(plan.get('supporting_changes', []))]
+    receipts = []
+    for item in changes:
+        try:
+            receipt = queue.propose(root, item['id'], path=item['path'], content=item['content'],
+                url=row['target'], kind=wf['kind'], evidence=plan['review']['evidence'])
+        except FileExistsError:
+            # Recovery after queue persistence but before ledger persistence. Exact
+            # intent/content/target must match; never adopt an unrelated same-ID action.
+            existing = json.loads(queue.item_path(root, item['id']).read_text(encoding='utf-8'))
+            if any(existing[k] != value for k, value in {'site': wf['site'], 'path': item['path'],
+                    'url': row['target'], 'kind': wf['kind'], 'content': item['content'],
+                    'evidence': plan['review']['evidence']}.items()):
+                raise ValueError('existing queue action does not match workflow proposal')
+            receipt = {key: existing[key] for key in ('id', 'content_sha256', 'status')}
+        receipts.append(receipt)
+    wf.update(stage='prepared', content_sha256=receipts[0]['content_sha256'],
+              supporting_tasks=[{'id': item['id'], 'content_sha256': receipt['content_sha256']}
+                                for item, receipt in zip(changes[1:], receipts[1:])])
 
 
 def _bind(row, site):
@@ -337,27 +370,46 @@ def advance(root, task_id, *, now=None, host=None, measurer=None, publisher=None
                 _prepare(root, row, wf['plan'], now=now)
                 ops.save_state(path, state)
             if wf['stage'] == 'prepared':
-                queued = json.loads(queue.item_path(root, task_id).read_text(encoding='utf-8'))
-                if queued['status'] == 'proposed':
+                queue_tasks = [{'id': task_id, 'content_sha256': wf['content_sha256']}]
+                expected_supporting = [
+                    {'id': f"{task_id}-file-{index}",
+                     'content_sha256': queue.digest(item['content'].encode('utf-8'))}
+                    for index, item in enumerate(wf.get('plan', {}).get('supporting_changes', []))]
+                if wf.get('supporting_tasks', []) != expected_supporting:
+                    raise PermissionError('supporting proposal binding changed after preparation')
+                queue_tasks.extend(expected_supporting)
+                queued_rows = [(item, json.loads(queue.item_path(root, item['id']).read_text(encoding='utf-8')))
+                               for item in queue_tasks]
+                if any(queued['status'] == 'proposed' for _, queued in queued_rows):
                     if wf['kind'] not in cfg.get('auto_approve_kinds', []) or not cfg.get('approval_ref'):
                         wf['blocker'] = 'exact_content_approval_required'
                         ops.save_state(path, state); return summary(row)
-                    queue.approve(root, task_id, content_sha256=wf['content_sha256'], approval_ref=cfg['approval_ref'])
+                    for item, queued in queued_rows:
+                        if queued['status'] == 'proposed':
+                            queue.approve(root, item['id'], content_sha256=item['content_sha256'],
+                                          approval_ref=cfg['approval_ref'])
                 if 'baseline' not in wf:
                     wf['baseline'] = measurer(root, row['target'], outcome_jobs.window_before(now.date(), cfg.get('evaluation_days', 28)))
                     ops.save_state(path, state)  # Missing GSC does not prevent a technical repair.
-                applied = queue.apply(root, task_id)
-                wf.update(stage='applied', local_receipt=applied)
+                applied = [queue.apply(root, item['id']) for item in queue_tasks]
+                wf.update(stage='applied', local_receipt=applied[0],
+                          supporting_receipts=applied[1:])
                 ops.save_state(path, state)
             if wf['stage'] == 'applied':
-                if publisher is None:
-                    if (site.get('deployment') or {}).get('provider') != 'github':
-                        wf['blocker'] = 'deployment_not_configured; local edit is not live'
-                        ops.save_state(path, state); return summary(row)
-                    from github_publication import progress
-                    publisher = progress
-                receipt = publisher(root, task_id, wf['plan'])
-                wf['publication'] = receipt
+                receipt = wf.get('publication')
+                # Persist a successful remote receipt before mutating the
+                # intervention ledger. If the process dies in that gap, resume
+                # the exact receipt instead of issuing another remote request.
+                if not (isinstance(receipt, dict) and receipt.get('state') == 'deployed'):
+                    if publisher is None:
+                        if (site.get('deployment') or {}).get('provider') != 'github':
+                            wf['blocker'] = 'deployment_not_configured; local edit is not live'
+                            ops.save_state(path, state); return summary(row)
+                        from github_publication import progress
+                        publisher = progress
+                    receipt = publisher(root, task_id, wf['plan'])
+                    wf['publication'] = receipt
+                    ops.save_state(path, state)
                 if receipt.get('state') != 'deployed':
                     wf['blocker'] = receipt.get('reason') or receipt.get('state', 'deployment_pending')
                     ops.save_state(path, state); return summary(row)

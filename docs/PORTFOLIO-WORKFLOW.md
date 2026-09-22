@@ -59,7 +59,8 @@ configuration fragment, not authority to change any real site:
 }
 ```
 
-The wrapper is an existing harness integration chosen by the operator. It receives
+The wrapper is a harness integration chosen by the operator; an optional supported
+Codex CLI adapter is documented in [Codex host](CODEX-HOST.md). It receives
 one UTF-8 JSON request on stdin and returns one JSON object on stdout. It must read
 and review the actual site files and evidence, and use its own supported reasoning,
 research, preview and review capabilities. The package does not invent a universal
@@ -162,9 +163,45 @@ For a real GitHub-backed site, configure its actual identity and deployment rout
 Do not copy the example identity/check names into production. Token provisioning
 and renewal occur outside SEO state. The client checks exact repository ID, base,
 approved content baseline and actual media bytes. It creates one Git tree/commit
-containing **one page file plus its associated media**, a new branch, and a PR.
-It never force-pushes or directly replaces the default branch. Arbitrary multi-file
-application changes are not represented as a supported transactional patch here.
+containing **up to ten exact-approved source files plus associated media**, a new
+branch, and a PR. It never force-pushes or directly replaces the default branch.
+This is a bounded text-file bundle, not an arbitrary repository patch executor.
+
+### Bounded source bundles
+
+A plan may now include up to nine `supporting_changes`, each `{path,content}`, alongside
+its primary page. All files share the task's site, kind, review and policy. Each gets
+an exact approved queue item (`TASK_ID-file-0`, etc.). Local writes are resumable,
+not an atomic filesystem transaction; interruption or conflict blocks publication.
+The GitHub transaction publishes all approved source files and media in one Git tree.
+Reverse PRs restore/remove all original source files, retaining unrelated files/media.
+For manually prepared bundles use repeated `publication prepare --supporting-task ID`.
+
+Native source (TSX/JSX/Markdown) and every supporting file require explicit public
+assertions. For example, a title fix plus sitemap entry uses:
+
+```json
+{
+  "supporting_changes": [{"path":"public/sitemap.xml","content":"<urlset><url><loc>https://example.com/page</loc></url></urlset>"}],
+  "verification": [
+    {"path":"src/routes/page/index.tsx","url":"https://example.com/page","kind":"title","value":"Approved title"},
+    {"path":"public/sitemap.xml","url":"https://example.com/sitemap.xml","kind":"sitemap_url","value":"https://example.com/page"}
+  ]
+}
+```
+
+Merge this fragment into a complete reviewed plan. Every assertion's value must
+occur in its proposed source. Supported kinds are `title`, `description`, `h1`,
+`text`, `link`, `sitemap_url`, and `robots_rule`. Checks use exact owned URLs and
+actual responses; sitemap checks parse XML. Literal HTML also checks approved
+title/description/H1 values and removals automatically. Unchanged body text cannot
+by itself prove a metadata repair. Dynamic values absent from approved source,
+JavaScript-only rendering, redirects and arbitrary application behavior need a
+separately qualified check; do not label generic text checks as proving them.
+
+For sites in a shared repository, configure `deployment.repository_subdir` with
+the exact relative app directory. Local paths/policy stay relative to the site root;
+Git tree paths include that prefix. Use a distinct environment for each app.
 
 `auto_submit` needs its standing reference and `deploy` policy. `auto_merge` also
 needs a separate reference, `merge` in allowed actions and named successful checks.
@@ -184,6 +221,8 @@ for the **exact merged commit**, configured environment and owned environment UR
 Missing/pending/failed receipts remain blockers. A green build, a PR or a merge alone
 is not deployment. This adapter does not guess Cloudflare, Vercel, CMS, preview or
 production ownership. It is not automatically attached to every domain.
+See [existing server deployment receipts](DEPLOYMENT-RECEIPTS.md) for the concrete
+receipt producer contract for existing build/PM2/other server pipelines.
 
 ## Recovery and later measurement
 
@@ -198,8 +237,8 @@ uncertain. Expired credentials require renewal outside state, followed by a read
 reconciliation as appropriate, not another blind create request.
 
 `publication rollback ORIGINAL_ID NEW_ID --evidence REFERENCE` prepares a new,
-separately approved reverse PR. It restores/removes only the original page if that
-page still matches the prior effect. It does not reset the repository, undo unrelated
+separately approved reverse PR. It restores/removes only original source files if each
+still matches the prior effect. It does not reset the repository, undo unrelated
 commits or delete potentially shared media. The reverse PR still needs merge,
 deployment and verification; local rollback is not production recovery.
 
