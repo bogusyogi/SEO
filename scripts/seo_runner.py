@@ -16,7 +16,7 @@ from seo_state import state_dir, atomic_json, transaction_lock
 from site_policy import load
 from reporting import analyze, render
 
-LANES = {'audit', 'gsc', 'ga4', 'bing', 'backlinks', 'gsc_ranks', 'serp'}
+LANES = {'audit', 'gsc', 'ga4', 'bing', 'backlinks', 'gsc_ranks', 'serp', 'gsc_sitemaps', 'bing_crawl'}
 
 
 def tick(root='.', *, now=None, run_collector=collect):

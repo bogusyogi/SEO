@@ -27,6 +27,33 @@ def run_json(root, args, timeout, output=None):
     return payload, completed.returncode
 
 
+def normalize_bing_crawl(prop, raw, code):
+    """Normalize BWT GetCrawlIssues into the measured-zero-vs-missing convention.
+
+    'ok' with issues == [] means we successfully queried Bing and it reported no
+    crawl issues (a genuine measured zero). 'failed' means we could not obtain
+    evidence at all (missing, not zero) — the two must never be conflated.
+    """
+    if code != 0 or raw.get('error'):
+        return {'provider': 'bing_webmaster', 'property': prop, 'status': 'failed',
+                'error': raw.get('error') or 'non-zero exit from bing_webmaster.py crawl',
+                'issues': None, 'issue_count': None, 'coverage': {'complete': False}}
+    payload = raw.get('d')
+    if payload is None:
+        payload = []
+    if not isinstance(payload, list):
+        return {'provider': 'bing_webmaster', 'property': prop, 'status': 'failed',
+                'error': 'unexpected Bing crawl-issue response shape', 'issues': None,
+                'issue_count': None, 'coverage': {'complete': False}}
+    issues = [{'url': item.get('Url'), 'issue_type': item.get('IssueType') or item.get('ImgKey'),
+               'severity': item.get('Severity'), 'detected': item.get('DetectedDate') or item.get('CrawlDate')}
+              for item in payload]
+    return {'provider': 'bing_webmaster', 'property': prop, 'status': 'ok', 'error': None,
+            'issues': issues, 'issue_count': len(issues),
+            'measured_zero': len(issues) == 0,
+            'coverage': {'complete': True, 'scope': 'crawl issues Bing has recorded for this verified property'}}
+
+
 def backlink_targets(site):
     values = site.get('backlink_targets') or ['https://' + site['domain'] + '/']
     if not isinstance(values, list) or not 1 <= len(values) <= 100:
@@ -62,6 +89,18 @@ def collect(root, lane: str, *, days: int = 28, max_pages: int = 100,
                 args = None
             elif lane == 'audit':
                 args = ['site_audit.py', '--url', url, '--max', str(max_pages), '--json', str(output)]
+            elif lane == 'gsc_sitemaps':
+                args = ['gsc_query.py', 'sitemaps', '--property', property_for(site, 'gsc')]
+            elif lane == 'bing_crawl':
+                prop = property_for(site, 'bing')
+                try:
+                    raw, code = run_json(root, ['bing_webmaster.py', 'crawl', '--site', prop], timeout)
+                except (subprocess.TimeoutExpired, ValueError, OSError) as exc:
+                    raw, code = {'error': type(exc).__name__, 'method': 'GetCrawlIssues'}, 1
+                data = normalize_bing_crawl(prop, raw, code)
+                state = data['status']
+                error = None if state == 'ok' else data.get('error') or 'crawl issues collection failed or incomplete'
+                args = None
             elif lane == 'backlinks':
                 targets = backlink_targets(site)  # Validate the entire scope before any request.
                 link_pages = site.get('backlink_max_pages', 20)
@@ -112,6 +151,8 @@ def collect(root, lane: str, *, days: int = 28, max_pages: int = 100,
                 bad = data.get('error') or data.get('pages_error') or data.get('status') in {'fail', 'failed', 'partial', 'error'}
                 if lane in {'gsc', 'gsc_ranks'}:
                     bad = bad or data.get('coverage', {}).get('hit_client_cap') is True
+                if lane == 'gsc_sitemaps' and property_for(site, 'gsc') != str(data.get('property') or ''):
+                    raise ValueError('collector property response mismatch')
                 if lane == 'audit':
                     usable = any(x.get('status') == 200 for x in data.get('pages', {}).values())
                     bad = bad or not usable or data.get('coverage', {}).get('collection_failures', 0) > 0
