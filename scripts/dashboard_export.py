@@ -659,7 +659,8 @@ def _project_block(site):
 
 
 def _audit_block(reports, domain):
-    candidates = sorted(Path(reports).glob('audit-*/findings.json'))
+    # Order by audit date, then write time: same-day dirs (audit-D, audit-D-manual) must not sort by suffix.
+    candidates = sorted(Path(reports).glob('audit-*/findings.json'), key=lambda p: (p.parent.name[6:16], p.stat().st_mtime))
     if not candidates:
         return {'status': 'missing', 'audit_date': None, 'primary_action': None, 'findings': []}
     history = []

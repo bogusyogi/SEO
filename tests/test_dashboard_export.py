@@ -254,6 +254,15 @@ class DashboardExportTests(unittest.TestCase):
             audit = exporter._audit_block(reports, 'x.com')
             self.assertEqual(audit['primary_action'], 'x-2')
             self.assertEqual([row['id'] for row in audit['findings']], ['x-2', 'all', 'x-1'])
+            # Same-day dirs: the most recently written one wins, not the lexically last suffix.
+            import os
+            (reports / 'audit-2026-01-02-manual').mkdir()
+            (reports / 'audit-2026-01-02-manual' / 'findings.json').write_text(json.dumps({'kind': 'manual', 'findings': []}), encoding='utf-8')
+            (reports / 'audit-2026-01-02').mkdir()
+            newest = reports / 'audit-2026-01-02' / 'findings.json'
+            newest.write_text(json.dumps({'kind': 'daily_deterministic', 'findings': []}), encoding='utf-8')
+            os.utime(newest, (4_000_000_000, 4_000_000_000))
+            self.assertEqual(exporter._audit_block(reports, 'x.com')['kind'], 'daily_deterministic')
 
 
 if __name__ == '__main__':
