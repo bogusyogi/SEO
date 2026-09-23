@@ -662,14 +662,27 @@ def _audit_block(reports, domain):
     candidates = sorted(Path(reports).glob('audit-*/findings.json'))
     if not candidates:
         return {'status': 'missing', 'audit_date': None, 'primary_action': None, 'findings': []}
+    history = []
+    for path in candidates[-30:]:
+        doc = _dict(_read(path))
+        mine = [row for row in doc.get('findings', []) if isinstance(row, dict) and row.get('site') in (domain, '*')]
+        history.append({'audit_date': _text(doc.get('audit_date') or path.parent.name[6:], 32),
+                        'kind': _text(doc.get('kind') or 'manual', 32),
+                        'critical': sum(row.get('severity') == 'critical' for row in mine),
+                        'high': sum(row.get('severity') == 'high' for row in mine), 'total': len(mine)})
     data = _dict(_read(candidates[-1]))
     findings = [row for row in data.get('findings', []) if isinstance(row, dict) and row.get('site') in (domain, '*')]
-    keep = ('id', 'control', 'category', 'status', 'severity', 'target', 'observed', 'hypothesis', 'recommendation', 'confidence')
-    rows = [{key: _text(row.get(key) or '', 900) for key in keep} for row in findings]
+    keep = ('id', 'control', 'category', 'status', 'severity', 'target', 'observed', 'hypothesis', 'recommendation',
+            'confidence', 'resolution', 'resolution_note')
+    rows = [{**{key: _text(row.get(key) or '', 900) for key in keep}, 'new': row.get('new') is True} for row in findings]
     order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3, 'info': 4}
     rows.sort(key=lambda row: order.get(row['severity'], 5))
+    resolved = [{'id': _text(row.get('id') or '', 120), 'control': _text(row.get('control') or '', 80), 'target': _text(row.get('target') or '', 300)}
+                for row in data.get('resolved_since_previous', []) if isinstance(row, dict) and row.get('site') == domain]
     primary = _dict(data.get('primary_action')).get(domain)
-    return {'status': 'ok', 'audit_date': _text(data.get('audit_date') or '', 32), 'primary_action': primary if isinstance(primary, str) else None, 'findings': rows[:40]}
+    return {'status': 'ok', 'audit_date': _text(data.get('audit_date') or '', 32), 'kind': _text(data.get('kind') or 'manual', 32),
+            'primary_action': primary if isinstance(primary, str) else None, 'findings': rows[:60],
+            'resolved_since_previous': resolved[:40], 'history': list(reversed(history))}
 
 
 def _site(root, reports):
