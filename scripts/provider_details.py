@@ -342,6 +342,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.skip_fresh < 0: ap.error("--skip-fresh must be non-negative")
     result = collect_roots(roots, only=only, skip_fresh=args.skip_fresh)
     overall = result[0] if args.root else {"status": "ok" if all(item.get("status") == "ok" for item in result) else "partial", "sites": result}
+    # Provider data contains non-ASCII; a redirected Windows console defaults to cp1252.
+    if hasattr(sys.stdout, "reconfigure"): sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps(overall, indent=2, ensure_ascii=False))
     return 0 if all(item.get("status") == "ok" for item in result) else 2
 
