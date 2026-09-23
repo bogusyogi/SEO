@@ -12,7 +12,6 @@ Checks per site:
   duplicates    near-identical server HTML between sampled product pages
   indexing      latest gsc_inspect_bulk lane: sampled sitemap URLs Google hasn't indexed
   decay         GSC page impressions, last 28d vs previous 28d (needs Google credentials)
-  links         zero known inbound links
 """
 from __future__ import annotations
 
@@ -277,12 +276,8 @@ def audit_site(root, previous):
                                        f'Impressions {p["impressions"]:.0f} -> {c["impressions"]:.0f}, clicks {p["clicks"]:.0f} -> {c["clicks"]:.0f} (28d vs previous 28d).',
                                        'Check indexing, ranking and intent changes before editing.', category='content', status='partial'))
     # Conversion tracking is out of scope by owner decision (2026-09-23): SEO is judged on clicks/rankings.
-    links = latest_lane(root, 'backlinks')
-    rows = ((links or {}).get('data') or {}).get('rows')
-    if isinstance(rows, list) and not rows:
-        out.append(finding(domain, 'no-known-inbound-links', f'https://{domain}/', 'medium',
-                           'Bing reports 0 inbound links to the homepage.', 'Earn first legitimate external references.',
-                           category='links', status='partial'))
+    # No inbound-link control: Bing's GetUrlLinks/GetLinkCounts return empty even for damneddesigns.com,
+    # which has known backlinks (2026-09-23), so an empty Bing result cannot distinguish "none" from "no data".
     return domain, out, own
 
 
