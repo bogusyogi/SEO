@@ -11,7 +11,7 @@ Checks per site:
   availability  Product schema availability vs live Vendure stock (when site.yaml has stock_api)
   duplicates    near-identical server HTML between sampled product pages
   indexing      latest gsc_inspect_bulk lane: sampled sitemap URLs Google hasn't indexed
-  decay         GSC page impressions, last 28d vs previous 28d (needs Google credentials)
+  decay         GSC page clicks halved, last 28d vs previous 28d (needs Google credentials)
 """
 from __future__ import annotations
 
@@ -269,9 +269,10 @@ def audit_site(root, previous):
     if decay:
         cur, prev = decay
         for url, p in prev.items():
-            if p['impressions'] >= 200:
+            # Owner judges SEO on clicks: lost zero-click impressions (e.g. AI Overview citations) are not decay.
+            if p['clicks'] >= 5:
                 c = cur.get(url, {'impressions': 0, 'clicks': 0})
-                if c['impressions'] < p['impressions'] * 0.5:
+                if c['clicks'] < p['clicks'] * 0.5:
                     out.append(finding(domain, 'page-decay', url, 'medium',
                                        f'Impressions {p["impressions"]:.0f} -> {c["impressions"]:.0f}, clicks {p["clicks"]:.0f} -> {c["clicks"]:.0f} (28d vs previous 28d).',
                                        'Check indexing, ranking and intent changes before editing.', category='content', status='partial'))
