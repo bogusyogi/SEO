@@ -231,6 +231,30 @@ class DashboardExportTests(unittest.TestCase):
             self.assertTrue(crawl['measured_zero'])
             self.assertEqual(exporter._bing_crawl_block(root.parent / 'nope')['issue_count'], None)
 
+    def test_project_and_audit_blocks_keep_provenance_and_hide_local_paths(self):
+        site = {'site_type': {'value': 'ecommerce', 'source': 'catalog'},
+                'goals': [{'value': 'grow revenue', 'source': 'runbook', 'needs_owner_confirmation': True}, 'plain goal'],
+                'competitors': {'business': ['A', 'B']},
+                'context_docs': ['D:/private/server-context/damned/SEO/Runbook.txt', '/srv/x/audit.md (notes)']}
+        project = exporter._project_block(site)
+        self.assertEqual(project['site_type']['value'], 'ecommerce')
+        self.assertTrue(project['goals'][0]['needs_owner_confirmation'])
+        self.assertEqual(project['goals'][1]['source'], '')
+        self.assertEqual(project['context_docs'], ['Runbook.txt', 'audit.md'])
+        with tempfile.TemporaryDirectory() as tmp:
+            reports = Path(tmp)
+            self.assertEqual(exporter._audit_block(reports, 'x.com')['status'], 'missing')
+            (reports / 'audit-2026-01-01').mkdir()
+            (reports / 'audit-2026-01-01' / 'findings.json').write_text(json.dumps({
+                'audit_date': '2026-01-01', 'primary_action': {'x.com': 'x-2'},
+                'findings': [{'id': 'x-1', 'site': 'x.com', 'severity': 'low'},
+                             {'id': 'x-2', 'site': 'x.com', 'severity': 'critical'},
+                             {'id': 'all', 'site': '*', 'severity': 'high'},
+                             {'id': 'other', 'site': 'y.com', 'severity': 'critical'}]}), encoding='utf-8')
+            audit = exporter._audit_block(reports, 'x.com')
+            self.assertEqual(audit['primary_action'], 'x-2')
+            self.assertEqual([row['id'] for row in audit['findings']], ['x-2', 'all', 'x-1'])
+
 
 if __name__ == '__main__':
     unittest.main()

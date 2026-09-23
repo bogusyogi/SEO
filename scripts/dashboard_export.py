@@ -633,6 +633,45 @@ def _bing_crawl_block(root):
     return {**_base(env), 'issue_count': _num(data.get('issue_count')), 'measured_zero': data.get('measured_zero') if isinstance(data.get('measured_zero'), bool) else None}
 
 
+def _sourced(items, limit=12):
+    # site.yaml context entries are either plain strings or {value, source, needs_owner_confirmation}.
+    out = []
+    for item in items if isinstance(items, list) else []:
+        if isinstance(item, dict) and isinstance(item.get('value'), str):
+            out.append({'value': _text(item['value'], 400), 'source': _text(item.get('source') or '', 160),
+                        'needs_owner_confirmation': item.get('needs_owner_confirmation') is True})
+        elif isinstance(item, str):
+            out.append({'value': _text(item, 400), 'source': '', 'needs_owner_confirmation': False})
+    return out[:limit]
+
+
+def _project_block(site):
+    competitors = _dict(site.get('competitors'))
+    names = [_text(name, 80) for name in competitors.get('business', []) if isinstance(name, str)][:12]
+    site_type = _sourced([site.get('site_type')], 1)
+    return {'site_type': site_type[0] if site_type else None, 'goals': _sourced(site.get('goals')),
+            'primary_conversions': _sourced(site.get('primary_conversions')),
+            'page_families': _sourced(site.get('important_page_families')),
+            'competitors': names, 'risk_flags': _sourced(site.get('risk_flags')),
+            # Basenames only: local filesystem paths stay on the collector host.
+            'context_docs': [_text(Path(str(doc).split(' (')[0]).name, 120) for doc in site.get('context_docs', []) if isinstance(doc, str)][:12],
+            'updated_at': _text(site.get('context_updated_at') or '', 32) or None}
+
+
+def _audit_block(reports, domain):
+    candidates = sorted(Path(reports).glob('audit-*/findings.json'))
+    if not candidates:
+        return {'status': 'missing', 'audit_date': None, 'primary_action': None, 'findings': []}
+    data = _dict(_read(candidates[-1]))
+    findings = [row for row in data.get('findings', []) if isinstance(row, dict) and row.get('site') in (domain, '*')]
+    keep = ('id', 'control', 'category', 'status', 'severity', 'target', 'observed', 'hypothesis', 'recommendation', 'confidence')
+    rows = [{key: _text(row.get(key) or '', 900) for key in keep} for row in findings]
+    order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3, 'info': 4}
+    rows.sort(key=lambda row: order.get(row['severity'], 5))
+    primary = _dict(data.get('primary_action')).get(domain)
+    return {'status': 'ok', 'audit_date': _text(data.get('audit_date') or '', 32), 'primary_action': primary if isinstance(primary, str) else None, 'findings': rows[:40]}
+
+
 def _site(root, reports):
     site = load_site(root)
     domain = site.get('domain')
@@ -668,6 +707,8 @@ def _site(root, reports):
     result['search_appearance'] = _appearance_block(root)
     result['bing_crawl'] = _bing_crawl_block(root)
     result['changes'] = _site_changes(root)
+    result['project'] = _project_block(site)
+    result['site_audit'] = _audit_block(reports, domain)
     return result
 
 
