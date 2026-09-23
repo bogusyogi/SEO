@@ -10,6 +10,7 @@ Checks per site:
   pages         status, noindex, canonical present/self, missing/duplicate titles (capped sample)
   availability  Product schema availability vs live Vendure stock (when site.yaml has stock_api)
   duplicates    near-identical server HTML between sampled product pages
+  links         internal <a> targets from sampled pages that 4xx/5xx or redirect (capped)
   indexing      latest gsc_inspect_bulk lane: sampled sitemap URLs Google hasn't indexed
   decay         GSC page clicks halved, last 28d vs previous 28d (needs Google credentials)
 """
@@ -104,10 +105,61 @@ def page_facts(url):
                     if isinstance(o, dict) and o.get('availability'):
                         avail.append(str(o['availability']).rsplit('/', 1)[-1])
     facts['availability'] = avail
+    # Real anchors only (script strings like `"/build/"+file` are not links).
+    facts['links'] = {urllib.parse.urljoin(final or url, html.unescape(h)).split('#')[0]
+                      for h in re.findall(r'<a\s[^>]*?href="([^"#][^"]*)"', body, re.I)}
     text = re.sub(r'<[^>]+>', ' ', re.sub(r'<script.*?</script>|<style.*?</style>', '', body, flags=re.S)).lower()
     words = re.findall(r'[a-z]{3,}', text)
     facts['shingles'] = {hashlib.md5(' '.join(words[i:i + 3]).encode()).hexdigest()[:12] for i in range(len(words) - 2)}
     return facts
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+def link_status(url, timeout=20):
+    """Status without following redirects, so 3xx targets are visible."""
+    req = urllib.request.Request(url, headers={'User-Agent': UA})
+    try:
+        with urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout) as r:
+            return r.status, None
+    except urllib.error.HTTPError as e:
+        return e.code, e.headers.get('Location')
+    except Exception:
+        return None, None
+
+
+LINK_TARGET_CAP = 200
+
+
+def link_findings(domain, pages, intentional_redirects=()):
+    """Internal <a> links from sampled pages that hit 4xx/5xx or a redirect.
+    /cdn-cgi/ (Cloudflare email obfuscation etc.) is excluded: it 404s for crawlers by design.
+    intentional_redirects: paths (site.yaml) whose redirect is by design, e.g. an OS-detecting /downloads/."""
+    bare = domain.removeprefix('www.')
+    sources = {}
+    for f in pages:
+        for link in f.get('links') or ():
+            parts = urllib.parse.urlsplit(link)
+            if parts.scheme in ('http', 'https') and parts.netloc.removeprefix('www.') == bare \
+                    and not parts.path.startswith('/cdn-cgi/') and parts.path not in intentional_redirects:
+                sources.setdefault(link, []).append(f['url'])
+    known = {f['url']: f['status'] for f in pages if f.get('final') == f['url']}
+    out = []
+    for link in list(sources)[:LINK_TARGET_CAP]:
+        status, location = (known[link], None) if known.get(link) == 200 else link_status(link)
+        srcs = sources[link]
+        if isinstance(status, int) and status >= 400:
+            out.append(finding(domain, 'internal-link-broken', link, 'high',
+                               f'{len(srcs)} sampled page(s) link to a {status}: e.g. {srcs[0]}',
+                               'Fix the link target or the page.', category='links'))
+        elif isinstance(status, int) and 300 <= status < 400:
+            out.append(finding(domain, 'internal-link-redirect', link, 'low',
+                               f'{len(srcs)} sampled page(s) link to a {status} -> {location}: e.g. {srcs[0]}',
+                               'Link to the final URL unless the redirect is intentional.', category='links', status='partial'))
+    return out
 
 
 def vendure_expected(stock_api, slug):
@@ -219,6 +271,7 @@ def audit_site(root, previous):
             out.append(finding(domain, 'title-missing', f['url'], 'medium', 'Empty <title>.', 'Add a descriptive title.'))
         else:
             titles.setdefault(f['title'], []).append(f['url'])
+    out += link_findings(domain, pages, tuple(site.get('intentional_redirects') or ()))
     for title, group in titles.items():
         if len(group) > 1:
             out.append(finding(domain, 'title-duplicate', title, 'low', f'{len(group)} URLs share the title: {", ".join(group[:4])}',

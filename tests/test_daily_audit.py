@@ -21,6 +21,21 @@ class DailyAuditTests(unittest.TestCase):
         self.assertEqual(facts['availability'], ['OutOfStock'])
         self.assertEqual(facts['title'], 'Oni | DD')
 
+    def test_link_findings_flags_broken_and_redirect_but_skips_cdn_cgi_and_intentional(self):
+        body = ('<a href="/gone/">x</a><a href="/old/">x</a><a href="/ok/">x</a><a href="/downloads/">x</a>'
+                '<a href="/cdn-cgi/l/email-protection#abc">x</a><a href="https://other.com/">x</a>'
+                '<script>var u="/build/"+f;</script>')
+        with patch.object(audit, 'fetch', return_value=(200, 'https://x.com/', body)):
+            facts = audit.page_facts('https://x.com/')
+        facts.update(url='https://x.com/', final='https://x.com/', status=200)
+        statuses = {'https://x.com/gone/': (404, None), 'https://x.com/old/': (301, 'https://x.com/new/'),
+                    'https://x.com/ok/': (200, None)}
+        with patch.object(audit, 'link_status', side_effect=lambda u: statuses[u]) as ls:
+            out = audit.link_findings('x.com', [facts], intentional_redirects=('/downloads/',))
+        self.assertEqual(sorted(c[0][0] for c in ls.call_args_list), sorted(statuses))
+        self.assertEqual({(f['control'], f['target']) for f in out},
+                         {('internal-link-broken', 'https://x.com/gone/'), ('internal-link-redirect', 'https://x.com/old/')})
+
     def test_finding_ids_are_stable(self):
         a = audit.finding('x.com', 'c', 't', 'low', 'o', 'r')
         b = audit.finding('x.com', 'c', 't', 'high', 'other', 'other')
