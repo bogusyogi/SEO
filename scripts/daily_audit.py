@@ -12,7 +12,7 @@ Checks per site:
   duplicates    near-identical server HTML between sampled product pages
   indexing      latest gsc_inspect_bulk lane: sampled sitemap URLs Google hasn't indexed
   decay         GSC page impressions, last 28d vs previous 28d (needs Google credentials)
-  measurement   no conversions recorded / zero known inbound links
+  links         zero known inbound links
 """
 from __future__ import annotations
 
@@ -276,9 +276,7 @@ def audit_site(root, previous):
                     out.append(finding(domain, 'page-decay', url, 'medium',
                                        f'Impressions {p["impressions"]:.0f} -> {c["impressions"]:.0f}, clicks {p["clicks"]:.0f} -> {c["clicks"]:.0f} (28d vs previous 28d).',
                                        'Check indexing, ranking and intent changes before editing.', category='content', status='partial'))
-    if not [c for c in site.get('primary_conversions') or [] if not (isinstance(c, dict) and c.get('needs_owner_confirmation'))]:
-        out.append(finding(domain, 'conversions-undefined', 'site', 'high', 'No confirmed conversion is recorded for this site.',
-                           'Define the conversion (purchase/download/signup) so SEO changes can be valued.', category='measurement'))
+    # Conversion tracking is out of scope by owner decision (2026-09-23): SEO is judged on clicks/rankings.
     links = latest_lane(root, 'backlinks')
     rows = ((links or {}).get('data') or {}).get('rows')
     if isinstance(rows, list) and not rows:
