@@ -9,6 +9,7 @@ Checks per site:
   sitemap       child sitemaps reachable; URLs on foreign/placeholder hosts; count drop vs last audit
   pages         status, noindex, canonical present/self, missing/duplicate titles (capped sample)
   availability  Product schema availability vs live Vendure stock (when site.yaml has stock_api)
+  merchant      Merchant-listing fields: variesBy props on every variant; offer price/currency/availability
   duplicates    near-identical server HTML between sampled product pages
   links         internal <a> targets from sampled pages that 4xx/5xx or redirect (capped)
   indexing      latest gsc_inspect_bulk lane: sampled sitemap URLs Google hasn't indexed
@@ -105,6 +106,7 @@ def page_facts(url):
                     if isinstance(o, dict) and o.get('availability'):
                         avail.append(str(o['availability']).rsplit('/', 1)[-1])
     facts['availability'] = avail
+    facts['merchant_problems'] = merchant_problems(body)
     # Real anchors only (script strings like `"/build/"+file` are not links).
     facts['links'] = {urllib.parse.urljoin(final or url, html.unescape(h)).split('#')[0]
                       for h in re.findall(r'<a\s[^>]*?href="([^"#][^"]*)"', body, re.I)}
@@ -112,6 +114,43 @@ def page_facts(url):
     words = re.findall(r'[a-z]{3,}', text)
     facts['shingles'] = {hashlib.md5(' '.join(words[i:i + 3]).encode()).hexdigest()[:12] for i in range(len(words) - 2)}
     return facts
+
+
+MERCHANT_REQUIRED_OFFER = ('price', 'priceCurrency', 'availability')
+
+
+def merchant_problems(body):
+    """Google Merchant-listing requirements that server HTML can prove missing: every variesBy property on
+    every ProductGroup variant, and price/currency/availability on every Product offer."""
+    problems = []
+    for block in re.findall(r'<script[^>]*application/ld\+json[^>]*>(.*?)</script>', body, re.S):
+        try:
+            data = json.loads(block)
+        except ValueError:
+            continue
+        nodes = data if isinstance(data, list) else data.get('@graph', [data]) if isinstance(data, dict) else []
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            products = []
+            if node.get('@type') == 'ProductGroup':
+                varies = [str(v).rsplit('/', 1)[-1] for v in (node.get('variesBy') or [])]
+                variants = [v for v in node.get('hasVariant') or [] if isinstance(v, dict)]
+                for prop in varies:
+                    missing = sum(1 for v in variants if not v.get(prop))
+                    if missing:
+                        problems.append(f'ProductGroup "{node.get("name")}": {missing}/{len(variants)} variants missing "{prop}"')
+                products = variants
+            elif node.get('@type') == 'Product':
+                products = [node]
+            for prod in products:
+                offers = prod.get('offers')
+                for o in offers if isinstance(offers, list) else [offers] if offers else []:
+                    if isinstance(o, dict):
+                        gone = [k for k in MERCHANT_REQUIRED_OFFER if not o.get(k)]
+                        if gone:
+                            problems.append(f'Product "{prod.get("name")}" offer missing {", ".join(gone)}')
+    return problems
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -267,6 +306,12 @@ def audit_site(root, previous):
         elif canon.rstrip('/') != f['url'].rstrip('/'):
             out.append(finding(domain, 'canonical-elsewhere', f['url'], 'medium', f'Canonical points to {canon}.',
                                'Confirm this URL should be in the sitemap if it canonicalises elsewhere.', status='partial'))
+        if f.get('merchant_problems'):
+            probs = f['merchant_problems']
+            out.append(finding(domain, 'merchant-schema-invalid', f['url'], 'high',
+                               f'{len(probs)} Merchant-listing problem(s): ' + '; '.join(probs[:3]),
+                               'Add the missing fields to the Product/ProductGroup markup (Search Console flags these as critical).',
+                               category='structured-data'))
         if not f.get('title'):
             out.append(finding(domain, 'title-missing', f['url'], 'medium', 'Empty <title>.', 'Add a descriptive title.'))
         else:

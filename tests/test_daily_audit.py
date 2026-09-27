@@ -36,6 +36,16 @@ class DailyAuditTests(unittest.TestCase):
         self.assertEqual({(f['control'], f['target']) for f in out},
                          {('internal-link-broken', 'https://x.com/gone/'), ('internal-link-redirect', 'https://x.com/old/')})
 
+    def test_merchant_problems_flag_variant_missing_varied_property(self):
+        bad = ('<script type="application/ld+json">{"@type":"ProductGroup","name":"Shirt",'
+               '"variesBy":["https://schema.org/size","https://schema.org/color"],'
+               '"hasVariant":[{"@type":"Product","name":"A","color":"Red",'
+               '"offers":{"price":"1","priceCurrency":"USD","availability":"InStock"}}]}</script>')
+        probs = audit.merchant_problems(bad)
+        self.assertEqual(probs, ['ProductGroup "Shirt": 1/1 variants missing "size"'])
+        good = bad.replace('"color":"Red"', '"color":"Red","size":"M"')
+        self.assertEqual(audit.merchant_problems(good), [])
+
     def test_finding_ids_are_stable(self):
         a = audit.finding('x.com', 'c', 't', 'low', 'o', 'r')
         b = audit.finding('x.com', 'c', 't', 'high', 'other', 'other')
