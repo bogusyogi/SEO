@@ -51,6 +51,9 @@ asking for known facts. Never silently substitute a global Google property.
   `scripts/bing_webmaster.py` and `scripts/backlink_tracker.py`.
 - Movement: `scripts/rank_tracker.py`; import actual provider observations, never
   relabel first-party average position as a controlled SERP rank.
+- Free tools/calculators/checkers as acquisition assets: `references/tool-led-growth.md`.
+- Social/video Google discovery: `references/google.md`; use authorized platform-property exports.
+- Product demonstrations, evergreen affiliates, curated listings & journalist research: `references/off-page.md`.
 - AI search: `references/ai-search-2026.md`, `geo.md`, `scripts/ai_visibility_import.py`.
   Exports, citations, impressions, referrals and prompt samples remain distinct.
 - Portfolio inventory and resumable execution: `seo.py portfolio`, `seo.py workflow`

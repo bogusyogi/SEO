@@ -22,6 +22,16 @@ and SEOmator can be invoked as separately installed scanners. Paid providers and
 agent frameworks are optional. No credential, live schedule, paid call, public post or
 site deployment is enabled by cloning/installing the package.
 
+## Transcript-derived acquisition methods
+
+Search workflows now cover [free tools](references/tool-led-growth.md),
+[AI citation-source opportunities](references/ai-search-2026.md),
+[Google social/video discovery](references/google.md), plus
+[product demonstrations, evergreen affiliates, curated listings & journalist research](references/off-page.md).
+Reuse existing [operations](references/operations.md) for evidence, approval, deployment & outcomes.
+[Transcript review](docs/TRANSCRIPT-REVIEW-2026-10-06.md) records sources & dispositions.
+These are independent methods; no host framework or extra scheduler is required.
+
 ## Portfolio maintenance
 
 `seo.py portfolio` discovers existing site workspaces and reports per-site readiness.

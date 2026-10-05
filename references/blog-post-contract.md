@@ -33,7 +33,7 @@ image dimensions, appropriate responsive formats and per-post preview images.
 Use Article/BlogPosting, BreadcrumbList and accurate author/entity markup where they
 match visible content. FAQPage or HowTo can be valid Schema.org vocabulary, but do NOT
 require either on every post or promise Google rich results. Verify current Google
-feature eligibility separately. Never auto-generate FAQs simply to satisfy a quota.
+feature eligibility separately. Google FAQ rich results retired May 7, 2026; see `schema-types.md`. Never auto-generate FAQs simply to satisfy a quota.
 
 The schema hook validates JSON syntax/basic structure after an edit; it does not undo
 an edit or certify Google eligibility. An explicit pre-publish build/review gate is
